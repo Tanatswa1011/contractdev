@@ -1,6 +1,10 @@
 import { SettingsPage } from "@/components/settings/settings-page";
 import { SessionGate } from "@/components/auth/session-gate";
 
+export const metadata = {
+  title: "Settings — ContractGuardAI"
+};
+
 export default function SettingsRoute() {
   return (
     <SessionGate mode="protected" redirectTo="/login">

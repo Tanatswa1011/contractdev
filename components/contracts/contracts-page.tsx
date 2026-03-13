@@ -58,6 +58,8 @@ function extendContracts(contracts: Contract[]): ExtendedContract[] {
   }));
 }
 
+type Toast = { id: number; message: string; type: "success" | "info" };
+
 export function ContractsPage() {
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("All");
@@ -71,6 +73,12 @@ export function ContractsPage() {
   const [sortMode, setSortMode] = useState<"deadline" | "risk" | "name">("deadline");
   const [nowMs] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  function showToast(message: string, type: Toast["type"] = "success") {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -312,6 +320,22 @@ export function ContractsPage() {
 
   return (
     <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
+      {/* Toast notifications */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={cn(
+              "rounded-xl border px-4 py-2.5 text-xs font-medium shadow-lg pointer-events-auto",
+              toast.type === "success"
+                ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900/40 dark:bg-green-950/50 dark:text-green-300"
+                : "border-border bg-card text-foreground"
+            )}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
         <input
           ref={fileInputRef}
