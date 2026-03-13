@@ -16,4 +16,3 @@ export default async function ContractDetail({ params }: ContractDetailProps) {
 
   return <ContractDetailPage contract={contract} />;
 }
-
