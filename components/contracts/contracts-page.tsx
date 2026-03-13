@@ -72,6 +72,8 @@ export function ContractsPage() {
 
   const contracts = useMemo(() => extendContracts(), []);
 
+  const [now] = useState(() => Date.now());
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     let result = contracts.filter((c) => {
@@ -91,7 +93,7 @@ export function ContractsPage() {
       if (quickFilter === "Expiring soon") {
         if (!c.renewalDate) return false;
         const days =
-          (new Date(c.renewalDate).getTime() - Date.now()) /
+          (new Date(c.renewalDate).getTime() - now) /
           (1000 * 60 * 60 * 24);
         if (days > 60) return false;
       }
@@ -122,7 +124,7 @@ export function ContractsPage() {
     });
 
     return result;
-  }, [contracts, search, quickFilter, statusFilter, riskFilter, sortField, sortDirection]);
+  }, [contracts, search, quickFilter, statusFilter, riskFilter, sortField, sortDirection, now]);
 
   const total = filtered.length;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));

@@ -41,32 +41,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!configured || !supabase) {
-      setState((s) => ({ ...s, loading: false }));
-      return;
+      const timer = setTimeout(() => {
+        if (!cancelled) setState((s) => ({ ...s, loading: false }));
+      }, 0);
+      return () => { cancelled = true; clearTimeout(timer); };
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setState({
-        user: session?.user ?? null,
-        session,
-        loading: false,
-        configured,
-      });
+      if (!cancelled) {
+        setState({
+          user: session?.user ?? null,
+          session,
+          loading: false,
+          configured,
+        });
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setState({
-        user: session?.user ?? null,
-        session,
-        loading: false,
-        configured,
-      });
+      if (!cancelled) {
+        setState({
+          user: session?.user ?? null,
+          session,
+          loading: false,
+          configured,
+        });
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [configured]);
 
   const signUp = useCallback(

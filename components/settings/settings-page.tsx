@@ -23,9 +23,9 @@ import {
   MessageSquare,
   Zap,
   Webhook,
-  AlertTriangle,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { format } from "date-fns";
 import { useTheme } from "@/components/settings/use-theme";
 
@@ -231,10 +231,13 @@ function GeneralTab({
             className="flex h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-foreground/40 hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring"
           >
             {avatarUrl ? (
-              <img
+              <Image
                 src={avatarUrl}
                 alt="Avatar"
+                width={80}
+                height={80}
                 className="h-full w-full object-cover"
+                unoptimized
               />
             ) : (
               <span className="flex h-full w-full items-center justify-center text-muted-foreground">

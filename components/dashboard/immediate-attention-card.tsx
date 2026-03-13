@@ -16,6 +16,7 @@ export function ImmediateAttentionCard() {
   const deadlineLabel = format(new Date(c.nextDeadline), "MMM d, yyyy");
 
   const handleSendReminder = () => {
+    // TODO: Wire to Supabase to queue actual reminder notifications
     setReminderSent(true);
     setTimeout(() => setReminderSent(false), 3000);
   };
