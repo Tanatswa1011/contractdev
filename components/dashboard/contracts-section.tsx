@@ -5,10 +5,11 @@ import { useDashboardStore, useFilteredContracts } from "@/store/use-dashboard-s
 import { ContractsTable } from "./contracts-table";
 import { ContractsTimeline } from "./contracts-timeline";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 export function ContractsSection() {
   const filteredContracts = useFilteredContracts();
-  const { viewMode, setViewMode } = useDashboardStore();
+  const { viewMode, setViewMode, setFilters } = useDashboardStore();
 
   const hasContracts = filteredContracts.length > 0;
 
@@ -72,6 +73,22 @@ export function ContractsSection() {
                 Try clearing one or more filters, or broadening your search query. ContractGuardAI
                 will show relevant contracts in real time as you type.
               </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-1"
+                onClick={() =>
+                  setFilters(() => ({
+                    search: "",
+                    status: "all",
+                    vendor: "all",
+                    risk: "all",
+                    onlyInRenewalWindow: false
+                  }))
+                }
+              >
+                Clear filters
+              </Button>
             </div>
           )}
         </CardContent>

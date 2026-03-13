@@ -1,7 +1,25 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { contracts } from "@/data/contracts";
+import { useDashboardStore } from "@/store/use-dashboard-store";
 
 export function RiskOverviewCard() {
+  const contracts = useDashboardStore((state) => state.contracts);
+  if (!contracts.length) {
+    return (
+      <section aria-label="Portfolio risk overview">
+        <Card className="border border-border bg-card">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              Portfolio risk level
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-1 text-xs text-muted-foreground">
+            Portfolio risk will be calculated after your first contract is added.
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
   const portfolioScore =
     contracts.reduce((acc, c) => acc + c.riskScore, 0) / contracts.length;
 

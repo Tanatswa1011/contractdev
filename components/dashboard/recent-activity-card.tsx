@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { contracts } from "@/data/contracts";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Bell, Edit3, FileText } from "lucide-react";
+import { useDashboardStore } from "@/store/use-dashboard-store";
 
 function activityIcon(description: string) {
   const text = description.toLowerCase();
@@ -19,10 +19,26 @@ function activityIcon(description: string) {
 }
 
 export function RecentActivityCard() {
+  const contracts = useDashboardStore((state) => state.contracts);
   const activities = contracts
     .flatMap((c) => c.recentActivities.map((a) => ({ ...a, contract: c })))
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     .slice(0, 6);
+
+  if (!activities.length) {
+    return (
+      <section aria-label="Recent contract activity">
+        <Card className="border border-border bg-card">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-sm font-semibold text-foreground">Recent activity</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 text-xs text-muted-foreground">
+            Activity will appear once contracts are uploaded and reviewed.
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
 
   return (
     <section aria-label="Recent contract activity">

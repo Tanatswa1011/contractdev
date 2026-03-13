@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Contract } from "@/types/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ChevronRight, Download, ExternalLink, FileText, Maximize2, Minus, Plus, Shield, Timer, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, Download, FileText, Maximize2, Minus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
+import { saveContractFile, saveContractReminder } from "@/lib/contracts-repository";
 
 interface ContractDetailPageProps {
   contract: Contract;
@@ -38,8 +39,13 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const [selectedClauseId, setSelectedClauseId] = useState<string | null>("termination");
   const [rightTab, setRightTab] = useState<RightTab>("insights");
   const [issueBannerVisible, setIssueBannerVisible] = useState(true);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage] = useState(1);
+  const [isViewerExpanded, setIsViewerExpanded] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatReply, setChatReply] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const totalPages = 12;
 
   const renewalDate = contract.renewalDate
@@ -58,9 +64,102 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
     c.label.toLowerCase().includes(clauseSearch.toLowerCase())
   );
 
+  const handleUploadVersion = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await saveContractFile(contract.id, file);
+    setActionMessage(
+      `Uploaded ${file.name}. TODO: wire parsing/version diff workflow once backend processing is configured.`
+    );
+    event.target.value = "";
+  };
+
+  const handleCreateReminder = async () => {
+    await saveContractReminder(
+      contract.id,
+      `Review ${contract.name} before deadline`,
+      contract.nextDeadline
+    );
+    setActionMessage(`Reminder created for ${nextDeadline}.`);
+  };
+
+  const handleExport = () => {
+    const contents = JSON.stringify(
+      {
+        id: contract.id,
+        name: contract.name,
+        vendor: contract.vendor,
+        riskScore: contract.riskScore,
+        summary: contract.summary,
+        aiSummary: contract.aiSummary
+      },
+      null,
+      2
+    );
+    const blob = new Blob([contents], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${contract.id}-summary.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActionMessage("Exported contract summary.");
+  };
+
+  const handleMarkReviewed = () => {
+    setIssueBannerVisible(false);
+    setActionMessage("Marked as reviewed for this session.");
+  };
+
+  const handleDownloadPreview = () => {
+    const text = `Contract: ${contract.name}\nVendor: ${contract.vendor}\n\n${contract.summary}\n`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${contract.id}-preview.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleChatAsk = () => {
+    const question = chatInput.trim();
+    if (!question) return;
+    const lower = question.toLowerCase();
+    let response = contract.aiSummary;
+
+    if (lower.includes("renew")) {
+      response = `Renewal is ${contract.renewalType.replace("-", " ")} and the next key deadline is ${nextDeadline}.`;
+    } else if (lower.includes("notice")) {
+      response = `Notice period is ${contract.noticePeriodDays} days. Notice window closes on ${noticeWindowCloses}.`;
+    } else if (lower.includes("risk")) {
+      response = `Current risk is ${contract.riskLevel} with score ${contract.riskScore}. Focus on time-sensitive obligations.`;
+    }
+
+    setChatReply(response);
+  };
+
   return (
     <main className="min-h-screen px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
       <div className="mx-auto max-w-[1600px] flex flex-col gap-5 lg:gap-6">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt"
+          className="hidden"
+          onChange={handleUploadChange}
+        />
+
+        {actionMessage && (
+          <Card className="border border-border bg-card">
+            <CardContent className="py-3 text-xs text-muted-foreground">{actionMessage}</CardContent>
+          </Card>
+        )}
+
         <Link
           href="/contracts"
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
@@ -85,19 +184,35 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
             <RiskPill level={contract.riskLevel} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleUploadVersion}
+            >
               Upload New Version
             </Button>
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleCreateReminder}
+            >
               Create Reminder
             </Button>
-            <Button variant="secondary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleExport}
+            >
               Export
             </Button>
             <Button
               variant="secondary"
               size="sm"
               className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleMarkReviewed}
             >
               Mark Reviewed
             </Button>
@@ -146,7 +261,12 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
           </Card>
 
           {/* Middle: PDF Preview */}
-          <Card className="border border-border bg-card rounded-[var(--radius)] flex flex-col">
+          <Card
+            className={cn(
+              "border border-border bg-card rounded-[var(--radius)] flex flex-col",
+              isViewerExpanded && "lg:col-span-2"
+            )}
+          >
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
@@ -188,10 +308,20 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                   </Button>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 rounded-full p-0"
+                    onClick={() => setIsViewerExpanded((prev) => !prev)}
+                  >
                     <Maximize2 className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 rounded-full p-0"
+                    onClick={handleDownloadPreview}
+                  >
                     <Download className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -262,10 +392,22 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                   <p className="text-[11px] text-muted-foreground">
                     Chat about this contract with AI. Ask questions about clauses, dates, or obligations.
                   </p>
-                  <Input
-                    placeholder="Ask about this contract..."
-                    className="mt-4 max-w-xs rounded-full text-[11px]"
-                  />
+                  <div className="mt-4 flex w-full max-w-xs items-center gap-2">
+                    <Input
+                      placeholder="Ask about this contract..."
+                      className="rounded-full text-[11px]"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                    />
+                    <Button size="sm" className="rounded-full text-[11px]" onClick={handleChatAsk}>
+                      Ask
+                    </Button>
+                  </div>
+                  {chatReply && (
+                    <p className="mt-3 rounded-xl border border-border bg-muted/30 px-3 py-2 text-[11px] text-foreground">
+                      {chatReply}
+                    </p>
+                  )}
                 </div>
               )}
               {rightTab === "details" && (

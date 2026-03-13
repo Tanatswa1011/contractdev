@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { Contract, RiskLevel } from "@/types/contract";
-import { contracts as allContracts } from "@/data/contracts";
 
 export type ContractsViewMode = "table" | "timeline";
 
@@ -17,14 +16,15 @@ interface DashboardState {
   selectedContractId: string | null;
   viewMode: ContractsViewMode;
   filters: DashboardFilters;
+  setContracts: (contracts: Contract[]) => void;
   setSelectedContract: (id: string | null) => void;
   setViewMode: (mode: ContractsViewMode) => void;
   setFilters: (updater: (prev: DashboardFilters) => DashboardFilters) => void;
 }
 
 export const useDashboardStore = create<DashboardState>((set) => ({
-  contracts: allContracts,
-  selectedContractId: allContracts[0]?.id ?? null,
+  contracts: [],
+  selectedContractId: null,
   viewMode: "table",
   filters: {
     search: "",
@@ -33,6 +33,14 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     risk: "all",
     onlyInRenewalWindow: false
   },
+  setContracts: (contracts) =>
+    set((state) => ({
+      contracts,
+      selectedContractId:
+        contracts.find((contract) => contract.id === state.selectedContractId)?.id ??
+        contracts[0]?.id ??
+        null
+    })),
   setSelectedContract: (id) => set({ selectedContractId: id }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setFilters: (updater) =>
@@ -70,7 +78,8 @@ export function useFilteredContracts() {
     if (vendor !== "all" && contract.vendor !== vendor) return false;
     if (risk !== "all" && contract.riskLevel !== risk) return false;
 
-    if (onlyInRenewalWindow && contract.renewalDate) {
+    if (onlyInRenewalWindow) {
+      if (!contract.renewalDate) return false;
       const renewal = new Date(contract.renewalDate);
       const noticeStart = new Date(renewal);
       noticeStart.setDate(

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Moon, Sun, LogOut } from "lucide-react";
@@ -46,6 +47,7 @@ export function TopNav() {
     }
     router.push("/login");
     router.refresh();
+>>>>>>> main
   }
 
   return (
