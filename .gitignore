@@ -1,30 +1,59 @@
-# Dependencies
-node_modules
-.pnp
-.pnp.js
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
 
-# Build / output
-.next
-out
-build
+# next.js
+/.next/
+/out/
+/build
 
-# Env and secrets
-.env
-.env*.local
+# production
+/dist
 
-# Debug / OS
-.DS_Store
-*.pem
+# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# Vercel
-.vercel
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# TypeScript
+# keep the template
+!.env.example
+
+# macOS / windows
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# typescript
 *.tsbuildinfo
+next-env.d.ts
 
-# IDE
-.idea
-.vscode
+# coverage
+/coverage
+
+# temporary files
+*.tmp
+*.temp
+
+# cursor
+.cursor/cache
+.cursor/tmp
+
+# supabase local files
+.supabase/
+
+# misc
+.vercel
