@@ -2,16 +2,17 @@
 
 import { contracts as baseContracts } from "@/data/contracts";
 import { Contract } from "@/types/contract";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, ChevronDown, ExternalLink, Filter, MoreHorizontal } from "lucide-react";
+import { ArrowRight, ChevronDown, ExternalLink, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 
 type ExtendedContract = Contract & {
   contractType: string;
@@ -43,6 +44,15 @@ const PAGE_SIZE = 25;
 const quickFilters = ["All", "Active", "Expiring soon", "High risk"] as const;
 type QuickFilter = (typeof quickFilters)[number];
 
+const SORT_OPTIONS = [
+  { value: "name-asc", label: "Name (A–Z)" },
+  { value: "name-desc", label: "Name (Z–A)" },
+  { value: "renewal-asc", label: "Renewal date (soonest)" },
+  { value: "renewal-desc", label: "Renewal date (latest)" },
+  { value: "risk-desc", label: "Risk score (high first)" },
+  { value: "risk-asc", label: "Risk score (low first)" },
+] as const;
+
 function extendContracts(): ExtendedContract[] {
   return baseContracts.map((c) => ({
     ...c,
@@ -57,12 +67,36 @@ export function ContractsPage() {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]["value"]>("renewal-asc");
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [reminderMessage, setReminderMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      const insideFilter = filterRef.current?.contains(target);
+      const insideSort = sortRef.current?.contains(target);
+      if (!insideFilter && !insideSort) {
+        setFilterDropdownOpen(false);
+        setSortDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const contracts = useMemo(() => extendContracts(), []);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return contracts.filter((c) => {
+    let result = contracts.filter((c) => {
+      if (archivedIds.has(c.id)) return false;
       if (q) {
         if (
           !(
@@ -86,7 +120,34 @@ export function ContractsPage() {
 
       return true;
     });
-  }, [contracts, search, quickFilter]);
+
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.name.localeCompare(b.name);
+        case "name-desc":
+          return b.name.localeCompare(a.name);
+        case "renewal-asc": {
+          const da = a.renewalDate ? new Date(a.renewalDate).getTime() : Infinity;
+          const db = b.renewalDate ? new Date(b.renewalDate).getTime() : Infinity;
+          return da - db;
+        }
+        case "renewal-desc": {
+          const da = a.renewalDate ? new Date(a.renewalDate).getTime() : 0;
+          const db = b.renewalDate ? new Date(b.renewalDate).getTime() : 0;
+          return db - da;
+        }
+        case "risk-desc":
+          return b.riskScore - a.riskScore;
+        case "risk-asc":
+          return a.riskScore - b.riskScore;
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [contracts, search, quickFilter, sortBy, archivedIds]);
 
   const total = filtered.length;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -127,6 +188,83 @@ export function ContractsPage() {
     selectedIds.has(c.id)
   );
 
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const supabase = createClient();
+    if (!supabase) {
+      setUploadMessage("Upload requires Supabase. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      setTimeout(() => setUploadMessage(null), 5000);
+      return;
+    }
+    try {
+      const path = `${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage.from("contracts").upload(path, file);
+      if (error) throw error;
+      setUploadMessage("Upload complete. TODO: Create contract record and refresh list.");
+    } catch (err) {
+      setUploadMessage(err instanceof Error ? err.message : "Upload failed. Ensure storage bucket 'contracts' exists.");
+    }
+    setTimeout(() => setUploadMessage(null), 5000);
+  };
+
+  const handleExport = () => {
+    if (selectedContracts.length === 0) return;
+    const headers = ["Contract", "Vendor", "Status", "Risk", "Renewal date", "Owner"];
+    const rows = selectedContracts.map((c) => [
+      c.name,
+      c.vendor,
+      c.status,
+      c.riskLevel,
+      c.renewalDate ? format(new Date(c.renewalDate), "yyyy-MM-dd") : "",
+      (c as ExtendedContract).owner,
+    ]);
+    const csv = [headers.join(","), ...rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `contracts-export-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleSendReminders = async () => {
+    if (selectedContracts.length === 0) return;
+    const supabase = createClient();
+    if (!supabase) {
+      setReminderMessage("Reminders require Supabase. Configure and run schema.sql.");
+      setTimeout(() => setReminderMessage(null), 5000);
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setReminderMessage("Sign in to send reminders.");
+      setTimeout(() => setReminderMessage(null), 5000);
+      return;
+    }
+    setReminderMessage(`${selectedContracts.length} renewal reminder(s) queued. TODO: Wire to contract_reminders.`);
+    setSelectedIds(new Set());
+    setTimeout(() => setReminderMessage(null), 5000);
+  };
+
+  const handleAssignOwner = () => {
+    if (selectedContracts.length === 0) return;
+    const owner = window.prompt("Enter owner (e.g. Legal, Finance):");
+    if (!owner) return;
+    setReminderMessage(`Owner "${owner}" assigned to ${selectedContracts.length} contract(s). TODO: Persist via Supabase.`);
+    setSelectedIds(new Set());
+    setTimeout(() => setReminderMessage(null), 5000);
+  };
+
+  const handleArchive = () => {
+    if (selectedContracts.length === 0) return;
+    setArchivedIds((prev) => new Set([...prev, ...selectedContracts.map((c) => c.id)]));
+    setSelectedIds(new Set());
+  };
+
   return (
     <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
@@ -148,30 +286,75 @@ export function ContractsPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 w-full min-w-[200px] rounded-xl border-border bg-card text-sm text-secondary"
               />
-              <Button
-                variant="ghost"
-                size="sm"
-              >
-                <Filter className="mr-1.5 h-3.5 w-3.5" />
-                Filters
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-              >
-                Sort
-                <ChevronDown className="ml-1.5 h-3 w-3" />
-              </Button>
+              <div className="relative" ref={filterRef}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setFilterDropdownOpen(!filterDropdownOpen); setSortDropdownOpen(false); }}
+                  className={cn(filterDropdownOpen && "bg-muted")}
+                >
+                  <Filter className="mr-1.5 h-3.5 w-3.5" />
+                  Filters
+                </Button>
+                {filterDropdownOpen && (
+                  <div className="absolute right-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-card p-2 shadow-lg">
+                    <p className="mb-2 text-[11px] font-medium text-muted">Quick filters above handle Status, Risk, Vendor. More filters coming soon.</p>
+                    <Button variant="ghost" size="sm" className="w-full text-left" onClick={() => setFilterDropdownOpen(false)}>Close</Button>
+                  </div>
+                )}
+              </div>
+              <div className="relative" ref={sortRef}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setSortDropdownOpen(!sortDropdownOpen); setFilterDropdownOpen(false); }}
+                  className={cn(sortDropdownOpen && "bg-muted")}
+                >
+                  Sort
+                  <ChevronDown className="ml-1.5 h-3 w-3" />
+                </Button>
+                {sortDropdownOpen && (
+                  <div className="absolute right-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-card py-1 shadow-lg">
+                    {SORT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setSortBy(opt.value); setSortDropdownOpen(false); }}
+                        className={cn(
+                          "w-full px-3 py-2 text-left text-[11px] hover:bg-muted",
+                          sortBy === opt.value && "bg-muted font-medium"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx"
+              className="hidden"
+              onChange={handleFileChange}
+            />
             <Button
               size="sm"
               variant="primary"
               className="h-9 rounded-full text-xs font-medium"
+              onClick={handleUploadClick}
             >
               Upload Contract
             </Button>
           </div>
         </section>
+
+        {(uploadMessage || reminderMessage) && (
+          <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            {uploadMessage ?? reminderMessage}
+          </div>
+        )}
 
         {/* Filter bar */}
         <section className="flex flex-wrap items-center justify-between gap-3">
@@ -216,6 +399,7 @@ export function ContractsPage() {
                     variant="primary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleSendReminders}
                   >
                     Send renewal reminders
                   </Button>
@@ -223,6 +407,7 @@ export function ContractsPage() {
                     variant="secondary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleExport}
                   >
                     Export
                   </Button>
@@ -230,6 +415,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleAssignOwner}
                   >
                     Assign owner
                   </Button>
@@ -237,6 +423,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleArchive}
                   >
                     Archive
                   </Button>
@@ -347,7 +534,7 @@ export function ContractsPage() {
                   Upload your first contract to start monitoring risk,
                   renewals, and key obligations across your portfolio.
                 </p>
-                <Button variant="primary" className="mt-1 rounded-full px-4 text-xs font-medium">
+                <Button variant="primary" className="mt-1 rounded-full px-4 text-xs font-medium" onClick={handleUploadClick}>
                   Upload Contract
                 </Button>
               </CardContent>

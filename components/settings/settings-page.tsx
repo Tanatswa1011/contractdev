@@ -127,6 +127,8 @@ export function SettingsPage() {
   );
 }
 
+const WORKSPACE_NAME_KEY = "contractguard_workspace_name";
+
 // --- General (with Avatar section) ---
 function GeneralTab({
   avatarUrl,
@@ -139,6 +141,15 @@ function GeneralTab({
   fileInputRef: React.RefObject<HTMLInputElement>;
   onAvatarChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const [workspaceName, setWorkspaceName] = useState(() => {
+    if (typeof window === "undefined") return "ContractGuardAI";
+    return localStorage.getItem(WORKSPACE_NAME_KEY) || "ContractGuardAI";
+  });
+
+  const handleWorkspaceNameBlur = () => {
+    localStorage.setItem(WORKSPACE_NAME_KEY, workspaceName);
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -188,7 +199,13 @@ function GeneralTab({
         <div className="mt-4 space-y-3">
           <div>
             <label className="text-xs text-muted-foreground">Workspace name</label>
-            <Input className="mt-1 max-w-sm" placeholder="ContractGuardAI" defaultValue="ContractGuardAI" />
+            <Input
+              className="mt-1 max-w-sm"
+              placeholder="ContractGuardAI"
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+              onBlur={handleWorkspaceNameBlur}
+            />
           </div>
         </div>
       </section>
@@ -198,23 +215,57 @@ function GeneralTab({
 
 // --- Notifications ---
 const NOTIFICATION_ITEMS = [
-  { id: "expiring", label: "Contract expiring soon" },
-  { id: "risk", label: "Risk level changed" },
-  { id: "uploaded", label: "New contract uploaded" },
-  { id: "renewal", label: "Renewal reminder" },
-  { id: "clause", label: "Key clause flagged" },
+  { id: "expiring", label: "Contract expiring soon", key: "notif_expiring" },
+  { id: "risk", label: "Risk level changed", key: "notif_risk" },
+  { id: "uploaded", label: "New contract uploaded", key: "notif_uploaded" },
+  { id: "renewal", label: "Renewal reminder", key: "notif_renewal" },
+  { id: "clause", label: "Key clause flagged", key: "notif_clause" },
 ];
 
 const NOTIFICATION_CHANNELS = [
-  { id: "email", name: "Email", desc: "Receive notifications by email.", available: true },
-  { id: "in-app", name: "In-app", desc: "Notifications in the dashboard and bell icon.", available: true },
-  { id: "slack", name: "Slack", desc: "Send alerts to a Slack channel. Connect in Integrations.", available: true },
-  { id: "teams", name: "Microsoft Teams", desc: "Post updates to a Teams channel.", available: true },
+  { id: "email", name: "Email", desc: "Receive notifications by email.", available: true, key: "channel_email" },
+  { id: "in-app", name: "In-app", desc: "Notifications in the dashboard and bell icon.", available: true, key: "channel_inapp" },
+  { id: "slack", name: "Slack", desc: "Send alerts to a Slack channel. Connect in Integrations.", available: true, key: "channel_slack" },
+  { id: "teams", name: "Microsoft Teams", desc: "Post updates to a Teams channel.", available: true, key: "channel_teams" },
   { id: "whatsapp", name: "WhatsApp", desc: "Get critical alerts on WhatsApp.", available: false },
   { id: "sms", name: "SMS", desc: "SMS alerts for urgent contract events.", available: false },
 ];
 
+function getStoredBool(key: string, def: boolean): boolean {
+  if (typeof window === "undefined") return def;
+  const v = localStorage.getItem(key);
+  return v === null ? def : v === "true";
+}
+
+function setStoredBool(key: string, val: boolean) {
+  localStorage.setItem(key, String(val));
+}
+
 function NotificationsTab() {
+  const [channelEmail, setChannelEmail] = useState(() => getStoredBool("channel_email", true));
+  const [channelInApp, setChannelInApp] = useState(() => getStoredBool("channel_inapp", true));
+  const [channelSlack, setChannelSlack] = useState(() => getStoredBool("channel_slack", false));
+  const [channelTeams, setChannelTeams] = useState(() => getStoredBool("channel_teams", false));
+  const [expiring, setExpiring] = useState(() => getStoredBool("notif_expiring", true));
+  const [risk, setRisk] = useState(() => getStoredBool("notif_risk", true));
+  const [uploaded, setUploaded] = useState(() => getStoredBool("notif_uploaded", true));
+  const [renewal, setRenewal] = useState(() => getStoredBool("notif_renewal", true));
+  const [clause, setClause] = useState(() => getStoredBool("notif_clause", true));
+
+  const channelState: Record<string, [boolean, (v: boolean) => void]> = {
+    email: [channelEmail, (v) => { setChannelEmail(v); setStoredBool("channel_email", v); }],
+    "in-app": [channelInApp, (v) => { setChannelInApp(v); setStoredBool("channel_inapp", v); }],
+    slack: [channelSlack, (v) => { setChannelSlack(v); setStoredBool("channel_slack", v); }],
+    teams: [channelTeams, (v) => { setChannelTeams(v); setStoredBool("channel_teams", v); }],
+  };
+  const itemState: Record<string, [boolean, (v: boolean) => void]> = {
+    expiring: [expiring, (v) => { setExpiring(v); setStoredBool("notif_expiring", v); }],
+    risk: [risk, (v) => { setRisk(v); setStoredBool("notif_risk", v); }],
+    uploaded: [uploaded, (v) => { setUploaded(v); setStoredBool("notif_uploaded", v); }],
+    renewal: [renewal, (v) => { setRenewal(v); setStoredBool("notif_renewal", v); }],
+    clause: [clause, (v) => { setClause(v); setStoredBool("notif_clause", v); }],
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -224,54 +275,74 @@ function NotificationsTab() {
         </p>
       </section>
 
-      {NOTIFICATION_CHANNELS.map((channel) => (
-        <section
-          key={channel.id}
-          className={cn(
-            "rounded-[var(--radius)] border border-border p-4",
-            channel.available ? "bg-muted/20" : "bg-muted/10 opacity-90"
-          )}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-semibold text-foreground">{channel.name}</h4>
-              {!channel.available && (
-                <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                  Coming soon
-                </Badge>
+      {NOTIFICATION_CHANNELS.map((channel) => {
+        const [on, setOn] = channel.key ? (channelState[channel.id] ?? [false, () => {}]) : [false, () => {}];
+        return (
+          <section
+            key={channel.id}
+            className={cn(
+              "rounded-[var(--radius)] border border-border p-4",
+              channel.available ? "bg-muted/20" : "bg-muted/10 opacity-90"
+            )}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-semibold text-foreground">{channel.name}</h4>
+                {!channel.available && (
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                    Coming soon
+                  </Badge>
+                )}
+              </div>
+              {channel.available && channel.key && (
+                <button
+                  type="button"
+                  onClick={() => setOn(!on)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border transition-colors",
+                    on ? "bg-foreground" : "bg-muted"
+                  )}
+                >
+                  <span className={cn(
+                    "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm transition-transform",
+                    on ? "translate-x-6" : "translate-x-0.5"
+                  )} />
+                </button>
               )}
             </div>
-            {channel.available && (
-              <button
-                type="button"
-                className="relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border bg-foreground"
-              >
-                <span className="inline-block h-5 w-5 translate-x-6 translate-y-0.5 rounded-full bg-background shadow-sm" />
-              </button>
+            <p className="mt-1 text-[11px] text-muted-foreground">{channel.desc}</p>
+            {channel.available && (channel.id === "email" || channel.id === "in-app") && (
+              <div className="mt-4 space-y-2 border-t border-border pt-4">
+                <p className="text-[11px] font-medium text-muted-foreground">Notify me when</p>
+                {NOTIFICATION_ITEMS.map((item) => {
+                  const [itemOn, setItemOn] = itemState[item.id];
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-lg border border-border bg-card/50 px-3 py-2"
+                    >
+                      <span className="text-xs text-foreground">{item.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => setItemOn(!itemOn)}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border transition-colors",
+                          itemOn ? "bg-foreground" : "bg-muted"
+                        )}
+                      >
+                        <span className={cn(
+                          "inline-block h-4 w-4 translate-y-0.5 rounded-full bg-background shadow-sm transition-transform",
+                          itemOn ? "translate-x-4" : "translate-x-0.5"
+                        )} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">{channel.desc}</p>
-          {channel.available && (channel.id === "email" || channel.id === "in-app") && (
-            <div className="mt-4 space-y-2 border-t border-border pt-4">
-              <p className="text-[11px] font-medium text-muted-foreground">Notify me when</p>
-              {NOTIFICATION_ITEMS.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between rounded-lg border border-border bg-card/50 px-3 py-2"
-                >
-                  <span className="text-xs text-foreground">{item.label}</span>
-                  <button
-                    type="button"
-                    className="relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border bg-muted"
-                  >
-                    <span className="inline-block h-4 w-4 translate-x-0.5 translate-y-0.5 rounded-full bg-background shadow-sm" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -279,6 +350,27 @@ function NotificationsTab() {
 // --- Members ---
 function MembersTab() {
   const [search, setSearch] = useState("");
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const handleExportCsv = () => {
+    const headers = ["Member", "Role", "Date added", "Email", "Status"];
+    const rows = MOCK_MEMBERS.map((m) => [m.name, m.role, m.dateAdded, m.email, m.status]);
+    const csv = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "members-export.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setActionMsg("CSV exported.");
+    setTimeout(() => setActionMsg(null), 3000);
+  };
+
+  const handleInvite = () => {
+    setActionMsg("TODO: Wire to Supabase Auth invite. Add email input and invite flow.");
+    setTimeout(() => setActionMsg(null), 5000);
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -307,6 +399,7 @@ function MembersTab() {
         <p className="mt-1 text-xs text-muted-foreground">
           Invite your team and manage access to contracts and workspaces.
         </p>
+        {actionMsg && <p className="text-xs text-muted-foreground mb-2">{actionMsg}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -323,11 +416,11 @@ function MembersTab() {
           <select className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
             <option>All statuses</option>
           </select>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={handleExportCsv}>
             <Download className="mr-1.5 h-3.5 w-3.5" />
             Export CSV
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={handleInvite}>
             <UserPlus className="mr-1.5 h-3.5 w-3.5" />
             Invite member
           </Button>
@@ -366,11 +459,17 @@ function MembersTab() {
 
 // --- Integrations ---
 function IntegrationsTab() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const handleAction = (name: string, action: string) => {
+    setMsg(`${action} ${name}: TODO: Wire OAuth / webhook configuration.`);
+    setTimeout(() => setMsg(null), 5000);
+  };
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
         Connect tools to automate workflows and sync contract events.
       </p>
+      {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         {INTEGRATIONS.map((int) => (
           <Card key={int.id} className="rounded-[var(--radius)] border border-border bg-card p-4">
@@ -387,7 +486,7 @@ function IntegrationsTab() {
               </Badge>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">{int.desc}</p>
-            <Button variant="outline" size="sm" className="mt-3">
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => handleAction(int.name, int.action)}>
               {int.action}
             </Button>
           </Card>
@@ -397,8 +496,20 @@ function IntegrationsTab() {
   );
 }
 
+const getAi = (k: string, d: string) => (typeof window !== "undefined" ? localStorage.getItem(`ai_${k}`) || d : d);
+const setAi = (k: string, v: string) => { if (typeof window !== "undefined") localStorage.setItem(`ai_${k}`, v); };
+
 // --- AI Settings ---
 function AISettingsTab() {
+  const [autoAnalyze, setAutoAnalyze] = useState(() => getStoredBool("ai_autoAnalyze", false));
+  const [riskSensitivity, setRiskSensitivity] = useState(() => getAi("riskSensitivity", "Medium"));
+  const [clauseDepth, setClauseDepth] = useState(() => getAi("clauseDepth", "Standard"));
+  const [language, setLanguage] = useState(() => getAi("language", "Auto-detect"));
+  const [summaryStyle, setSummaryStyle] = useState(() => getAi("summaryStyle", "Concise"));
+  const [secureMode, setSecureMode] = useState(() => getStoredBool("ai_secureMode", false));
+  const [metadataOnly, setMetadataOnly] = useState(() => getStoredBool("ai_metadataOnly", false));
+  const [retainHistory, setRetainHistory] = useState(() => getStoredBool("ai_retainHistory", false));
+
   return (
     <div className="space-y-8">
       <section>
@@ -408,19 +519,19 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Auto-analyze contracts on upload" desc="Run analysis when a contract is uploaded.">
-            <Toggle off />
+            <Toggle off={!autoAnalyze} onToggle={() => { setAutoAnalyze(!autoAnalyze); setStoredBool("ai_autoAnalyze", !autoAnalyze); }} />
           </SettingRow>
           <SettingRow label="Risk sensitivity" desc="Higher sensitivity flags more contracts as risky.">
-            <Select options={["Low", "Medium", "High"]} value="Medium" />
+            <Select options={["Low", "Medium", "High"]} value={riskSensitivity} onChange={(v) => { setRiskSensitivity(v); setAi("riskSensitivity", v); }} />
           </SettingRow>
           <SettingRow label="Clause extraction depth" desc="Choose the level of data for extracted clauses.">
-            <Select options={["Basic", "Standard", "Full"]} value="Standard" />
+            <Select options={["Basic", "Standard", "Full"]} value={clauseDepth} onChange={(v) => { setClauseDepth(v); setAi("clauseDepth", v); }} />
           </SettingRow>
           <SettingRow label="Language detection" desc="Automatically detect the contract language or set manually.">
-            <Select options={["Auto-detect", "English", "Other"]} value="Auto-detect" />
+            <Select options={["Auto-detect", "English", "Other"]} value={language} onChange={(v) => { setLanguage(v); setAi("language", v); }} />
           </SettingRow>
           <SettingRow label="Summary style" desc="Control how contract summaries are provided.">
-            <Select options={["Concise", "Detailed"]} value="Concise" />
+            <Select options={["Concise", "Detailed"]} value={summaryStyle} onChange={(v) => { setSummaryStyle(v); setAi("summaryStyle", v); }} />
           </SettingRow>
         </div>
       </section>
@@ -431,13 +542,13 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Enable secure analysis mode" desc="Process data in a isolated environment.">
-            <Toggle off />
+            <Toggle off={!secureMode} onToggle={() => { setSecureMode(!secureMode); setStoredBool("ai_secureMode", !secureMode); }} />
           </SettingRow>
           <SettingRow label="Store extracted metadata only" desc="Do not store full contract text.">
-            <Toggle off />
+            <Toggle off={!metadataOnly} onToggle={() => { setMetadataOnly(!metadataOnly); setStoredBool("ai_metadataOnly", !metadataOnly); }} />
           </SettingRow>
           <SettingRow label="Retain AI analysis history" desc="Keep history of past analyses.">
-            <Toggle off />
+            <Toggle off={!retainHistory} onToggle={() => { setRetainHistory(!retainHistory); setStoredBool("ai_retainHistory", !retainHistory); }} />
           </SettingRow>
         </div>
       </section>
@@ -465,10 +576,11 @@ function SettingRow({
   );
 }
 
-function Toggle({ off = false }: { off?: boolean }) {
+function Toggle({ off = false, onToggle }: { off?: boolean; onToggle?: () => void }) {
   return (
     <button
       type="button"
+      onClick={onToggle}
       className={cn(
         "relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border transition-colors",
         off ? "bg-muted" : "bg-foreground"
@@ -476,7 +588,7 @@ function Toggle({ off = false }: { off?: boolean }) {
     >
       <span
         className={cn(
-          "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm",
+          "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm transition-transform",
           off ? "translate-x-0.5" : "translate-x-6"
         )}
       />
@@ -484,10 +596,11 @@ function Toggle({ off = false }: { off?: boolean }) {
   );
 }
 
-function Select({ options, value }: { options: string[]; value: string }) {
+function Select({ options, value, onChange }: { options: string[]; value: string; onChange?: (v: string) => void }) {
   return (
     <select
-      defaultValue={value}
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
       className="h-9 min-w-[120px] rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
     >
       {options.map((o) => (
@@ -538,8 +651,8 @@ function BillingTab() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            <Button variant="primary" size="sm">Upgrade plan</Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="primary" size="sm" onClick={() => window.alert("TODO: Wire to Stripe billing portal. Upgrade plan flow.")}>Upgrade plan</Button>
+            <Button variant="secondary" size="sm" onClick={() => window.alert("TODO: Wire to Stripe customer portal. Manage billing.")}>
               Manage billing
             </Button>
           </div>
@@ -581,7 +694,7 @@ function BillingTab() {
           <p className="text-[11px] text-muted-foreground">
             No payment method added yet.
           </p>
-          <Button variant="primary" size="sm">Add payment method</Button>
+          <Button variant="primary" size="sm" onClick={() => window.alert("TODO: Wire to Stripe. Add payment method.")}>Add payment method</Button>
         </div>
       </section>
 
@@ -606,7 +719,7 @@ function BillingTab() {
           </div>
         </div>
         <div className="mt-4">
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" onClick={() => window.alert("TODO: Wire to Supabase. Update billing info form.")}>
             Update billing info
           </Button>
         </div>
@@ -638,7 +751,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" onClick={() => window.alert("TODO: Wire to Stripe. Download invoice PDF.")}>
                     Download
                   </Button>
                 </td>
@@ -651,7 +764,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" onClick={() => window.alert("TODO: Wire to Stripe. Download invoice PDF.")}>
                     Download
                   </Button>
                 </td>
@@ -673,8 +786,8 @@ function BillingTab() {
           <li>Priority support for enterprise contracts.</li>
         </ul>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button variant="primary" size="sm">View plans</Button>
-          <Button variant="secondary" size="sm">
+          <Button variant="primary" size="sm" onClick={() => window.alert("TODO: Wire to pricing page or Stripe. View plans.")}>View plans</Button>
+          <Button variant="secondary" size="sm" onClick={() => window.open("mailto:sales@contractguard.ai?subject=Enterprise%20inquiry")}>
             Contact sales
           </Button>
         </div>
@@ -685,6 +798,10 @@ function BillingTab() {
 
 // --- Danger Zone ---
 function DangerZoneTab() {
+  const handleDanger = (title: string, requiresConfirm: boolean) => {
+    if (requiresConfirm && !window.confirm(`Are you sure you want to ${title.toLowerCase()}? This cannot be undone.`)) return;
+    window.alert(`TODO: Implement via Supabase. ${title} requires workspace/auth integration.`);
+  };
   return (
     <div className="space-y-6">
       <div>
@@ -698,16 +815,19 @@ function DangerZoneTab() {
           title="Delete workspace"
           desc="Remove this workspace and all configuration. Contracts and billing data remain available to the account owner."
           action="Delete"
+          onAction={() => handleDanger("Delete workspace", true)}
         />
         <DangerRow
           title="Delete account"
           desc="Permanently delete your account and all associated data."
           action="Delete"
+          onAction={() => handleDanger("Delete account", true)}
         />
         <DangerRow
           title="Remove all contract data"
           desc="Delete all uploaded contracts and analysis from this workspace."
           action="Delete"
+          onAction={() => handleDanger("Remove all contract data", true)}
         />
       </div>
     </div>
@@ -718,10 +838,12 @@ function DangerRow({
   title,
   desc,
   action,
+  onAction,
 }: {
   title: string;
   desc: string;
   action: string;
+  onAction?: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -729,7 +851,7 @@ function DangerRow({
         <p className="text-xs font-medium text-foreground">{title}</p>
         <p className="text-[11px] text-muted-foreground">{desc}</p>
       </div>
-      <Button variant="danger" size="sm">
+      <Button variant="danger" size="sm" onClick={onAction}>
         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
         {action}
       </Button>

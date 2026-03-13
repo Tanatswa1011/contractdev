@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Contract } from "@/types/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { ArrowLeft, ChevronRight, Download, ExternalLink, FileText, Maximize2, M
 import Link from "next/link";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 interface ContractDetailPageProps {
   contract: Contract;
@@ -40,7 +41,90 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const [issueBannerVisible, setIssueBannerVisible] = useState(true);
   const [zoom, setZoom] = useState(100);
   const [currentPage, setCurrentPage] = useState(1);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [markedReviewed, setMarkedReviewed] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const totalPages = 12;
+
+  const showMessage = (msg: string) => {
+    setActionMessage(msg);
+    setTimeout(() => setActionMessage(null), 5000);
+  };
+
+  const handleUploadVersion = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const supabase = createClient();
+    if (!supabase) {
+      showMessage("Upload requires Supabase. Set env vars.");
+      return;
+    }
+    try {
+      const path = `${contract.id}-v${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage.from("contracts").upload(path, file);
+      if (error) throw error;
+      showMessage("New version uploaded. TODO: Link to contract and refresh.");
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : "Upload failed.");
+    }
+  };
+
+  const handleCreateReminder = () => {
+    const dateStr = window.prompt("Reminder date (YYYY-MM-DD):");
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+      showMessage("Invalid date.");
+      return;
+    }
+    showMessage(`Reminder set for ${format(d, "MMM d, yyyy")}. TODO: Persist to contract_reminders.`);
+  };
+
+  const handleExport = () => {
+    const blob = new Blob(
+      [
+        `Contract: ${contract.name}\nVendor: ${contract.vendor}\nSummary: ${contract.summary}\nAI Summary: ${contract.aiSummary}`,
+      ],
+      { type: "text/plain" }
+    );
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${contract.id}-export.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleMarkReviewed = () => {
+    setMarkedReviewed(true);
+    showMessage("Marked as reviewed. TODO: Persist to Supabase.");
+  };
+
+  const handleDownloadPdf = () => {
+    showMessage("PDF download not available for preview. Upload document to storage for download.");
+  };
+
+  const handleChatSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const q = chatInput.trim();
+    setChatMessages((prev) => [...prev, { role: "user", text: q }]);
+    setChatInput("");
+    const reply =
+      q.toLowerCase().includes("renewal") || q.toLowerCase().includes("date")
+        ? `For ${contract.name}, the next deadline is ${format(new Date(contract.nextDeadline), "MMM d, yyyy")}. Renewal: ${contract.renewalDate ? format(new Date(contract.renewalDate), "MMM d, yyyy") : "N/A"}.`
+        : q.toLowerCase().includes("risk")
+        ? `Risk level is ${contract.riskLevel} (score ${contract.riskScore}). ${contract.aiSummary}`
+        : `Regarding "${q}": ${contract.aiSummary}`;
+    setChatMessages((prev) => [...prev, { role: "assistant", text: reply }]);
+  };
 
   const renewalDate = contract.renewalDate
     ? format(new Date(contract.renewalDate), "MMM d yyyy")
@@ -85,21 +169,24 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
             <RiskPill level={contract.riskLevel} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleFileChange} />
+            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]" onClick={handleUploadVersion}>
               Upload New Version
             </Button>
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]" onClick={handleCreateReminder}>
               Create Reminder
             </Button>
-            <Button variant="secondary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button variant="secondary" size="sm" className="h-8 rounded-full px-3 text-[11px]" onClick={handleExport}>
               Export
             </Button>
             <Button
               variant="secondary"
               size="sm"
               className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleMarkReviewed}
+              disabled={markedReviewed}
             >
-              Mark Reviewed
+              {markedReviewed ? "Reviewed" : "Mark Reviewed"}
             </Button>
           </div>
         </section>
@@ -188,10 +275,10 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                   </Button>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0" onClick={() => setIsMaximized(!isMaximized)} title={isMaximized ? "Restore" : "Maximize"}>
                     <Maximize2 className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0" onClick={handleDownloadPdf} title="Download">
                     <Download className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -258,14 +345,28 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                 </div>
               )}
               {rightTab === "chat" && (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <p className="text-[11px] text-muted-foreground">
-                    Chat about this contract with AI. Ask questions about clauses, dates, or obligations.
-                  </p>
-                  <Input
-                    placeholder="Ask about this contract..."
-                    className="mt-4 max-w-xs rounded-full text-[11px]"
-                  />
+                <div className="flex flex-col py-4">
+                  <div className="flex-1 space-y-3 overflow-auto min-h-[120px]">
+                    {chatMessages.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Chat about this contract with AI. Ask questions about clauses, dates, or obligations.
+                      </p>
+                    ) : (
+                      chatMessages.map((m, i) => (
+                        <div key={i} className={cn("rounded-lg px-3 py-2 text-[11px]", m.role === "user" ? "ml-4 bg-muted" : "mr-4 bg-muted/50")}>
+                          {m.text}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <form onSubmit={handleChatSubmit} className="mt-4">
+                    <Input
+                      placeholder="Ask about this contract..."
+                      className="rounded-full text-[11px]"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                    />
+                  </form>
                 </div>
               )}
               {rightTab === "details" && (
@@ -292,6 +393,13 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
           </Card>
         </section>
       </div>
+
+      {/* Action message */}
+      {actionMessage && (
+        <div className="fixed bottom-16 left-4 z-50 rounded-lg border border-border bg-card px-3 py-2 text-[11px] text-foreground shadow-lg">
+          {actionMessage}
+        </div>
+      )}
 
       {/* Issue banner */}
       {issueBannerVisible && (
