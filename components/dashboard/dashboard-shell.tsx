@@ -52,10 +52,10 @@ export function DashboardShell() {
           initial="hidden"
           animate="visible"
           variants={containerVariants}
-          className="flex min-w-0 flex-1 flex-col gap-5 lg:gap-6"
+          className="flex min-w-0 flex-1 flex-col gap-6 lg:gap-7"
         >
-          <StatsCards />
           <ImmediateAttentionCard />
+          <StatsCards />
           <ContractsToolbar />
           <RiskOverviewCard />
           <ContractsSection />

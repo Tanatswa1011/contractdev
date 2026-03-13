@@ -49,58 +49,90 @@ export function AiAssistantPanel({ contract }: AiAssistantPanelProps) {
   }
 
   return (
-    <Card className="border border-border bg-card">
-      <CardHeader className="space-y-3 pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-muted text-aiAccent ring-1 ring-border">
-              <Brain className="h-3.5 w-3.5" />
-            </span>
-            <div className="flex flex-col">
-              <CardTitle className="text-sm font-semibold text-foreground">
-                AI Contract Assistant
-              </CardTitle>
-              <span className="text-[11px] text-muted-foreground">
-                Context-aware insights for the selected contract.
+    <div className="space-y-3">
+      {/* AI Contract Assistant header */}
+      <Card className="border border-border bg-card">
+        <CardHeader className="space-y-3 pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-muted text-aiAccent ring-1 ring-border">
+                <Brain className="h-3.5 w-3.5" />
               </span>
+              <div className="flex flex-col">
+                <CardTitle className="text-sm font-semibold text-foreground">
+                  AI Contract Assistant
+                </CardTitle>
+                <span className="text-[11px] text-muted-foreground">
+                  Context-aware insights for the selected contract.
+                </span>
+              </div>
+            </div>
+            <Badge variant="info">Beta</Badge>
+          </div>
+          <div className="rounded-2xl bg-muted px-3 py-2 ring-1 ring-border">
+            <p className="truncate text-[12px] font-medium text-foreground">
+              {contract.name}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {contract.vendor} • ${contract.contractValue.toLocaleString()}/
+              {contract.valuePeriod}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge variant="success">Active</Badge>
+              <Badge
+                variant={
+                  contract.riskLevel === "low"
+                    ? "success"
+                    : contract.riskLevel === "medium"
+                    ? "warning"
+                    : "danger"
+                }
+              >
+                {contract.healthLabel}
+              </Badge>
+              <Badge variant="outline">Risk score {contract.riskScore}</Badge>
             </div>
           </div>
-          <Badge variant="info">Beta</Badge>
-        </div>
-        <div className="rounded-2xl bg-muted px-3 py-2 ring-1 ring-border">
-          <p className="truncate text-[12px] font-medium text-foreground">
-            {contract.name}
-          </p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {contract.vendor} • ${contract.contractValue.toLocaleString()}/
-            {contract.valuePeriod}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge variant="success">Active</Badge>
-            <Badge
-              variant={
-                contract.riskLevel === "low"
-                  ? "success"
-                  : contract.riskLevel === "medium"
-                  ? "warning"
-                  : "danger"
-              }
-            >
-              {contract.healthLabel}
-            </Badge>
-            <Badge variant="outline">Risk score {contract.riskScore}</Badge>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-0 text-xs text-foreground">
-        <AiSummaryCard contract={contract} />
-        <div className="grid grid-cols-1 gap-3">
+        </CardHeader>
+      </Card>
+
+      {/* Portfolio insight */}
+      <Card className="border border-border bg-card">
+        <CardHeader className="pb-1.5">
+          <CardTitle className="text-xs font-semibold text-foreground">
+            Portfolio insight
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 text-xs text-foreground">
+          <AiSummaryCard contract={contract} />
+        </CardContent>
+      </Card>
+
+      {/* Important dates & clauses */}
+      <Card className="border border-border bg-card">
+        <CardHeader className="pb-1.5">
+          <CardTitle className="text-xs font-semibold text-foreground">
+            Important dates
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-0 text-xs text-foreground">
           <ImportantDatesCard contract={contract} />
           <ClauseTags clauses={contract.clauses} />
-        </div>
-        <AskContractBox contract={contract} />
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {/* Ask this contract */}
+      <Card className="border border-border bg-card">
+        <CardHeader className="pb-1.5">
+          <CardTitle className="text-xs font-semibold text-foreground">
+            Ask this contract
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 text-xs text-foreground">
+          <AskContractBox contract={contract} />
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -293,8 +325,9 @@ function AskContractBox({ contract }: { contract: Contract }) {
           className="h-8 rounded-full border-border bg-card text-[11px] placeholder:text-muted-foreground"
         />
         <Button
+          variant="primary"
           size="md"
-          className="h-8 rounded-full bg-aiAccent text-xs text-primary-foreground hover:bg-aiAccent/90"
+          className="h-8 rounded-full text-xs"
           onClick={() => handleAsk(input)}
           disabled={isLoading}
         >

@@ -34,8 +34,8 @@ export function ContractsSection() {
               className={cn(
                 "cursor-pointer rounded-full px-2 py-0.5 transition-colors",
                 viewMode === "table"
-                  ? "bg-card text-foreground"
-                  : "hover:text-foreground"
+                  ? "bg-btn text-btn-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               Table
@@ -46,8 +46,8 @@ export function ContractsSection() {
               className={cn(
                 "cursor-pointer rounded-full px-2 py-0.5 transition-colors",
                 viewMode === "timeline"
-                  ? "bg-card text-foreground"
-                  : "hover:text-foreground"
+                  ? "bg-btn text-btn-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               Timeline

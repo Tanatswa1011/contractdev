@@ -128,7 +128,7 @@ export function ContractsPage() {
   );
 
   return (
-    <main className="px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
+    <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
         {/* Header */}
         <section className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -151,7 +151,6 @@ export function ContractsPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9 rounded-xl border border-border bg-card px-2 text-xs text-muted hover:bg-muted"
               >
                 <Filter className="mr-1.5 h-3.5 w-3.5" />
                 Filters
@@ -159,7 +158,6 @@ export function ContractsPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9 rounded-xl border border-border bg-card px-2 text-xs text-muted hover:bg-muted"
               >
                 Sort
                 <ChevronDown className="ml-1.5 h-3 w-3" />
@@ -167,7 +165,8 @@ export function ContractsPage() {
             </div>
             <Button
               size="sm"
-              className="h-9 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              variant="primary"
+              className="h-9 rounded-full text-xs font-medium"
             >
               Upload Contract
             </Button>
@@ -214,30 +213,30 @@ export function ContractsPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Button
-                    variant="subtle"
+                    variant="primary"
                     size="sm"
-                    className="h-7 rounded-full px-3 text-[11px]"
+                    className="h-7 rounded-full text-[11px]"
                   >
                     Send renewal reminders
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
-                    className="h-7 rounded-full px-3 text-[11px]"
+                    className="h-7 rounded-full text-[11px]"
                   >
                     Export
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 rounded-full px-3 text-[11px]"
+                    className="h-7 rounded-full text-[11px]"
                   >
                     Assign owner
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 rounded-full px-3 text-[11px]"
+                    className="h-7 rounded-full text-[11px]"
                   >
                     Archive
                   </Button>
@@ -247,10 +246,10 @@ export function ContractsPage() {
           </section>
         )}
 
-        <section className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <section className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
           <div className="flex min-w-0 flex-1 flex-col gap-3">
             <Card className="border border-border bg-card">
-              <CardContent className="p-0">
+              <CardContent className="px-5 pb-4 pt-3">
                 <ContractsTable
                   contracts={pageContracts}
                   allPageSelected={allPageSelected}
@@ -348,7 +347,7 @@ export function ContractsPage() {
                   Upload your first contract to start monitoring risk,
                   renewals, and key obligations across your portfolio.
                 </p>
-                <Button className="mt-1 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground hover:bg-primary/90">
+                <Button variant="primary" className="mt-1 rounded-full px-4 text-xs font-medium">
                   Upload Contract
                 </Button>
               </CardContent>
@@ -379,30 +378,31 @@ function ContractsTable({
 }: ContractsTableProps) {
   const router = useRouter();
   return (
-    <table className="min-w-full border-separate border-spacing-0 text-xs">
-      <thead className="bg-muted">
-        <tr>
-          <th className="w-6 border-b border-border px-3 py-2 text-left">
-            <input
-              type="checkbox"
-              checked={allPageSelected}
-              onChange={onToggleAll}
-              className="h-3.5 w-3.5 rounded border-border accent-primary"
-            />
-          </th>
-          <TableHeaderCell>Contract</TableHeaderCell>
-          <TableHeaderCell>Vendor</TableHeaderCell>
-          <TableHeaderCell>Type</TableHeaderCell>
-          <TableHeaderCell>Status</TableHeaderCell>
-          <TableHeaderCell>Risk</TableHeaderCell>
-          <TableHeaderCell>Renewal date</TableHeaderCell>
-          <TableHeaderCell>Owner</TableHeaderCell>
-          <th className="w-32 border-b border-border px-3 py-2 text-right text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
-            Actions
-          </th>
-        </tr>
-      </thead>
-      <tbody>
+    <div className="w-full overflow-x-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-xs">
+        <thead className="bg-muted">
+          <tr>
+            <th className="w-8 border-b border-border px-3 py-2 text-left">
+              <input
+                type="checkbox"
+                checked={allPageSelected}
+                onChange={onToggleAll}
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+            </th>
+            <TableHeaderCell>Contract</TableHeaderCell>
+            <TableHeaderCell>Vendor</TableHeaderCell>
+            <TableHeaderCell>Type</TableHeaderCell>
+            <TableHeaderCell>Status</TableHeaderCell>
+            <TableHeaderCell>Risk</TableHeaderCell>
+            <TableHeaderCell>Renewal date</TableHeaderCell>
+            <TableHeaderCell>Owner</TableHeaderCell>
+            <th className="min-w-[110px] border-b border-border px-3 py-2 text-right text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody>
         {contracts.map((contract) => {
           const isSelected = selectedIds.has(contract.id);
           const renewalLabel = contract.renewalDate
@@ -412,12 +412,12 @@ function ContractsTable({
             <tr
               key={contract.id}
               className={cn(
-                "group cursor-pointer border-t border-border/60 transition-colors transition-transform hover:bg-muted",
+                "group cursor-pointer border-t border-border/60 transition-colors hover:bg-muted",
                 isSelected && "bg-muted translate-x-[2px] border-l-2 border-l-primary"
               )}
               onClick={() => onRowClick(contract.id)}
             >
-              <td className="w-6 px-3 py-2.5 align-middle">
+              <td className="w-8 px-3 py-2.5 align-middle">
                 <input
                   type="checkbox"
                   checked={isSelected}
@@ -427,7 +427,7 @@ function ContractsTable({
                 />
               </td>
               <td className="px-3 py-2.5 align-middle">
-                <div className="flex flex-col">
+                <div className="flex flex-col max-w-[220px]">
                   <span className="truncate text-[13px] font-medium text-primary">
                     {contract.name}
                   </span>
@@ -454,35 +454,26 @@ function ContractsTable({
               <td className="px-3 py-2.5 align-middle text-secondary">
                 {contract.owner}
               </td>
-              <td className="px-3 py-2.5 align-middle text-right">
-                <div className="flex items-center justify-end gap-1.5">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="h-7 rounded-full px-2.5 text-[11px]"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/contracts/${contract.id}`);
-                    }}
-                  >
-                    <ExternalLink className="mr-1 h-3 w-3" />
-                    View
-                  </Button>
-                  <RowAction label="Edit" />
-                  <RowAction label="Ask AI" />
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border text-[11px] text-muted hover:bg-muted opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+              <td className="px-3 py-2.5 align-middle text-right whitespace-nowrap min-w-[110px]">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="rounded-full px-3 text-[11px]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    router.push(`/contracts/${contract.id}`);
+                  }}
+                >
+                  <ExternalLink className="mr-1 h-3 w-3" />
+                  View
+                </Button>
               </td>
             </tr>
           );
         })}
-      </tbody>
-    </table>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -505,47 +496,27 @@ function StatusLabel({ status }: { status: Contract["status"] }) {
 }
 
 function RiskLabel({ level }: { level: Contract["riskLevel"] }) {
-  const color =
+  const toneClass =
     level === "low"
-      ? "text-success"
+      ? "bg-success/10 text-success"
       : level === "medium"
-      ? "text-warning"
-      : "text-danger";
+      ? "bg-warning/10 text-warning"
+      : "bg-danger/10 text-danger";
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
-        color
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+        toneClass
       )}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {level === "low"
-        ? "Low risk"
+        ? "Low"
         : level === "medium"
-        ? "Medium risk"
-        : "High risk"}
+        ? "Medium"
+        : "High"}
     </span>
-  );
-}
-
-function RowAction({
-  label,
-  onClick
-}: {
-  label: string;
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-}) {
-  return (
-    <button
-      className="inline-flex h-7 items-center justify-center rounded-full border border-border bg-card px-2.5 text-[10px] text-secondary hover:bg-muted"
-      onClick={onClick}
-    >
-      <span>{label}</span>
-      {label === "View" && (
-        <ArrowRight className="ml-1 h-3 w-3" />
-      )}
-    </button>
   );
 }
 
@@ -570,6 +541,7 @@ function ContractPreview({ contract }: { contract: ExtendedContract | null }) {
           </div>
           <Button
             size="sm"
+            variant="secondary"
             className="h-7 shrink-0 rounded-full px-2.5 text-[11px]"
             asChild
           >

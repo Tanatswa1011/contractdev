@@ -8,27 +8,36 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "bg-btn text-btn-foreground hover:opacity-90",
-        outline:
-          "border border-border bg-transparent text-foreground hover:bg-muted",
-        subtle:
-          "bg-muted text-foreground hover:bg-secondary border border-border",
+        // Primary: solid, high-emphasis
+        primary:
+          "bg-[#111111] text-white hover:bg-[#181818] dark:bg-white dark:text-[#111111] dark:hover:bg-[#e5e5e5] border border-transparent",
+        // Secondary: bordered, transparent background
+        secondary:
+          "border border-[#e5e5e5] bg-transparent text-[#111111] hover:bg-[#f5f5f5] dark:border-[#2a2a2a] dark:text-white dark:hover:bg-[#1f1f1f]",
+        // Ghost: low-emphasis
         ghost:
-          "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+          "bg-transparent text-[#555555] hover:bg-[#f5f5f5] dark:text-[#aaaaaa] dark:hover:bg-[#1f1f1f]",
+        // Semantic variants keep existing behavior
         danger:
           "bg-danger text-danger-foreground hover:bg-danger/90",
         success:
-          "bg-success text-success-foreground hover:bg-success/90"
+          "bg-success text-success-foreground hover:bg-success/90",
+        // Backwards-compatible aliases
+        default:
+          "bg-[#111111] text-white hover:bg-[#181818] dark:bg-white dark:text-[#111111] dark:hover:bg-[#e5e5e5] border border-transparent",
+        outline:
+          "border border-[#e5e5e5] bg-transparent text-[#111111] hover:bg-[#f5f5f5] dark:border-[#2a2a2a] dark:text-white dark:hover:bg-[#1f1f1f]",
+        subtle:
+          "border border-[#e5e5e5] bg-transparent text-[#111111] hover:bg-[#f5f5f5] dark:border-[#2a2a2a] dark:text-white dark:hover:bg-[#1f1f1f]"
       },
       size: {
-        sm: "h-7 px-3 text-[11px]",
-        md: "h-8 px-3.5 text-xs",
-        lg: "h-9 px-4 text-sm"
+        sm: "px-3 py-1.5 text-[11px]",
+        md: "px-4 py-2 text-xs",
+        lg: "px-5 py-2.5 text-sm"
       }
     },
     defaultVariants: {
-      variant: "default",
+      variant: "primary",
       size: "md"
     }
   }

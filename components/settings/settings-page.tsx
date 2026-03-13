@@ -538,8 +538,8 @@ function BillingTab() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            <Button size="sm">Upgrade plan</Button>
-            <Button variant="outline" size="sm">
+            <Button variant="primary" size="sm">Upgrade plan</Button>
+            <Button variant="secondary" size="sm">
               Manage billing
             </Button>
           </div>
@@ -581,7 +581,7 @@ function BillingTab() {
           <p className="text-[11px] text-muted-foreground">
             No payment method added yet.
           </p>
-          <Button size="sm">Add payment method</Button>
+          <Button variant="primary" size="sm">Add payment method</Button>
         </div>
       </section>
 
@@ -606,7 +606,7 @@ function BillingTab() {
           </div>
         </div>
         <div className="mt-4">
-          <Button variant="outline" size="sm">
+          <Button variant="secondary" size="sm">
             Update billing info
           </Button>
         </div>
@@ -638,7 +638,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="outline" size="sm">
+                  <Button variant="secondary" size="sm">
                     Download
                   </Button>
                 </td>
@@ -651,7 +651,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="outline" size="sm">
+                  <Button variant="secondary" size="sm">
                     Download
                   </Button>
                 </td>
@@ -673,8 +673,8 @@ function BillingTab() {
           <li>Priority support for enterprise contracts.</li>
         </ul>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="sm">View plans</Button>
-          <Button variant="outline" size="sm">
+          <Button variant="primary" size="sm">View plans</Button>
+          <Button variant="secondary" size="sm">
             Contact sales
           </Button>
         </div>

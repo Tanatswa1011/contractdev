@@ -8,6 +8,10 @@ export function RiskOverviewCard() {
   const label =
     portfolioScore < 40 ? "Healthy" : portfolioScore < 70 ? "Moderate" : "High risk";
 
+  const lowCount = contracts.filter((c) => c.riskLevel === "low").length;
+  const mediumCount = contracts.filter((c) => c.riskLevel === "medium").length;
+  const highCount = contracts.filter((c) => c.riskLevel === "high").length;
+
   return (
     <section aria-label="Portfolio risk overview">
       <Card className="border border-border bg-card">
@@ -20,6 +24,27 @@ export function RiskOverviewCard() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 pt-1">
+          {/* Segment labels above bar */}
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>
+              Low exposure{" "}
+              <span className="text-foreground">
+                ({lowCount})
+              </span>
+            </span>
+            <span>
+              Watchlist{" "}
+              <span className="text-foreground">
+                ({mediumCount})
+              </span>
+            </span>
+            <span>
+              High impact{" "}
+              <span className="text-foreground">
+                ({highCount})
+              </span>
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
               <div className="absolute inset-y-0 left-0 w-1/3 bg-success" />

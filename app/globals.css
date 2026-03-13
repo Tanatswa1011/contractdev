@@ -58,9 +58,9 @@
   --text-subtle: #94A3B8;
   --sidebar-accent-foreground: #111827;
   --sidebar-primary-foreground: #f9fafb;
-  /* primary button: black in light mode */
-  --btn: #0a0a0a;
-  --btn-foreground: #ffffff;
+  /* primary button: white */
+  --btn: #ffffff;
+  --btn-foreground: #0a0a0a;
 }
 
 .dark {
@@ -109,8 +109,8 @@
   --text-secondary: #e5e7eb;
   --text-muted: #9ca3af;
   --text-subtle: #6b7280;
-  /* primary button: white in dark mode */
-  --btn: #fafafa;
+  /* primary button: white */
+  --btn: #ffffff;
   --btn-foreground: #0a0a0a;
 }
 

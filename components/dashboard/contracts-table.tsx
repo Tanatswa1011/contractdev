@@ -22,22 +22,22 @@ interface ContractsTableProps {
 function RiskPill({ riskLevel }: { riskLevel: Contract["riskLevel"] }) {
   const label =
     riskLevel === "low" ? "Low" : riskLevel === "medium" ? "Medium" : "High";
-  const color =
+  const toneClass =
     riskLevel === "low"
-      ? "text-success"
+      ? "bg-success/10 text-success"
       : riskLevel === "medium"
-      ? "text-warning"
-      : "text-danger";
+      ? "bg-warning/10 text-warning"
+      : "bg-danger/10 text-danger";
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
-        color
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+        toneClass
       )}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {label} risk
+      {label}
     </span>
   );
 }
@@ -107,12 +107,7 @@ export function ContractsTable({ contracts }: ContractsTableProps) {
       header: "",
       cell: ({ row }) => (
         <div onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 rounded-full px-2 text-[11px]"
-            asChild
-          >
+          <Button variant="secondary" size="sm" className="h-7 rounded-full px-2 text-[11px]" asChild>
             <Link href={`/contracts/${row.original.id}`}>
               <ExternalLink className="mr-1 h-3 w-3" />
               View

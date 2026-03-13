@@ -85,19 +85,19 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
             <RiskPill level={contract.riskLevel} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
               Upload New Version
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
               Create Reminder
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button variant="secondary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
               Export
             </Button>
             <Button
-              variant="subtle"
+              variant="secondary"
               size="sm"
-              className="h-8 rounded-full px-3 text-[11px] bg-card border border-border"
+              className="h-8 rounded-full px-3 text-[11px]"
             >
               Mark Reviewed
             </Button>

@@ -66,7 +66,8 @@ export function ImmediateAttentionCard() {
           <div className="flex w-full shrink-0 flex-col gap-2.5 md:w-60">
             <Button
               size="lg"
-              className="group flex w-full items-center justify-between rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+              variant="secondary"
+              className="group flex w-full items-center justify-between rounded-full"
               asChild
             >
               <Link href={`/contracts/${c.id}`}>
