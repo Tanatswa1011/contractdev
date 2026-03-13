@@ -1,8 +1,8 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { contracts, immediateAttentionContract } from "@/data/contracts";
 import { useDashboardStore } from "@/store/use-dashboard-store";
+import { Contract } from "@/types/contract";
 import { differenceInDays } from "date-fns";
 import { ArrowUpRight, AlertTriangle, CalendarClock, FileWarning } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const kpiBaseClasses =
   "relative overflow-hidden rounded-3xl border border-border bg-card px-4 py-3.5";
 
-function computeKpis() {
+function computeKpis(contracts: Contract[]) {
   const activeContracts = contracts.filter((c) => c.status === "active");
   const renewalsIn30 = activeContracts.filter((c) => {
     if (!c.renewalDate) return false;
@@ -33,8 +33,12 @@ function computeKpis() {
 }
 
 export function StatsCards() {
-  const { activeContracts, renewalsIn30, noticeOpen, highRisk } = computeKpis();
+  const contracts = useDashboardStore((state) => state.contracts);
+  const { activeContracts, renewalsIn30, noticeOpen, highRisk } = computeKpis(contracts);
   const { setFilters } = useDashboardStore();
+  const immediateAttentionContract = contracts
+    .filter((c) => c.riskLevel === "high")
+    .sort((a, b) => new Date(a.nextDeadline).getTime() - new Date(b.nextDeadline).getTime())[0];
 
   const cards = [
     {

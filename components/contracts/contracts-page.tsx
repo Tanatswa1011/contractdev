@@ -1,17 +1,24 @@
 "use client";
 
-import { contracts as baseContracts } from "@/data/contracts";
 import { Contract } from "@/types/contract";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, ChevronDown, ExternalLink, Filter, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ExternalLink, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  bulkArchiveContracts,
+  bulkAssignOwner,
+  loadContracts,
+  saveContractFile,
+  saveContractReminder,
+  upsertContract
+} from "@/lib/contracts-repository";
 
 type ExtendedContract = Contract & {
   contractType: string;
@@ -43,8 +50,8 @@ const PAGE_SIZE = 25;
 const quickFilters = ["All", "Active", "Expiring soon", "High risk"] as const;
 type QuickFilter = (typeof quickFilters)[number];
 
-function extendContracts(): ExtendedContract[] {
-  return baseContracts.map((c) => ({
+function extendContracts(contracts: Contract[]): ExtendedContract[] {
+  return contracts.map((c) => ({
     ...c,
     contractType: TYPE_MAP[c.id] ?? "SaaS Subscription",
     owner: OWNER_MAP[c.id] ?? "Legal"
@@ -57,12 +64,48 @@ export function ContractsPage() {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [contracts, setContracts] = useState<ExtendedContract[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [showFilterBar, setShowFilterBar] = useState(true);
+  const [sortMode, setSortMode] = useState<"deadline" | "risk" | "name">("deadline");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const contracts = useMemo(() => extendContracts(), []);
+  useEffect(() => {
+    let isMounted = true;
+
+    loadContracts()
+      .then((result) => {
+        if (!isMounted) return;
+        setContracts(extendContracts(result.contracts));
+        if (result.warning) {
+          setInfoMessage(`Unable to sync contracts from Supabase: ${result.warning}`);
+        } else if (result.source === "demo") {
+          setInfoMessage(
+            "Supabase is not configured or no session was found. Showing local demo data."
+          );
+        } else {
+          setInfoMessage(null);
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!previewId) return;
+    if (contracts.some((contract) => contract.id === previewId)) return;
+    setPreviewId(null);
+  }, [contracts, previewId]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return contracts.filter((c) => {
+    const base = contracts.filter((c) => {
       if (q) {
         if (
           !(
@@ -86,7 +129,17 @@ export function ContractsPage() {
 
       return true;
     });
-  }, [contracts, search, quickFilter]);
+
+    return [...base].sort((a, b) => {
+      if (sortMode === "name") {
+        return a.name.localeCompare(b.name);
+      }
+      if (sortMode === "risk") {
+        return b.riskScore - a.riskScore;
+      }
+      return new Date(a.nextDeadline).getTime() - new Date(b.nextDeadline).getTime();
+    });
+  }, [contracts, search, quickFilter, sortMode]);
 
   const total = filtered.length;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -127,9 +180,158 @@ export function ContractsPage() {
     selectedIds.has(c.id)
   );
 
+  const cycleSort = () => {
+    setSortMode((prev) => {
+      if (prev === "deadline") return "risk";
+      if (prev === "risk") return "name";
+      return "deadline";
+    });
+  };
+
+  const sortLabel =
+    sortMode === "deadline"
+      ? "Sort: renewal date"
+      : sortMode === "risk"
+      ? "Sort: risk score"
+      : "Sort: contract name";
+
+  const triggerUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const createUploadedContract = async (file: File) => {
+    const now = new Date();
+    const id = `contract-${Math.random().toString(36).slice(2, 10)}`;
+    const newContract: ExtendedContract = {
+      id,
+      name: file.name.replace(/\.[^/.]+$/, "") || "Uploaded contract",
+      vendor: "Unassigned vendor",
+      status: "draft",
+      riskLevel: "medium",
+      riskScore: 50,
+      healthLabel: "Needs review",
+      contractValue: 0,
+      valuePeriod: "year",
+      renewalType: "manual-renewal",
+      startDate: now.toISOString(),
+      endDate: undefined,
+      renewalDate: undefined,
+      noticePeriodDays: 30,
+      nextDeadline: now.toISOString(),
+      summary: "Contract uploaded. Review details and set renewal information.",
+      aiSummary: "TODO: Run AI analysis after upload parsing is configured.",
+      clauses: ["Renewal"],
+      timelineEvents: [],
+      recentActivities: [
+        {
+          id: `${id}-upload`,
+          description: `Uploaded file ${file.name}`,
+          timestamp: now.toISOString(),
+          relativeTime: "Just now"
+        }
+      ],
+      contractType: "Uploaded Document",
+      owner: "Legal"
+    };
+
+    setContracts((prev) => [newContract, ...prev]);
+    setInfoMessage(`Uploaded "${file.name}". Review and complete contract details next.`);
+    setPage(1);
+    setPreviewId(newContract.id);
+    await saveContractFile(newContract.id, file);
+    await upsertContract(newContract);
+  };
+
+  const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await createUploadedContract(file);
+    event.target.value = "";
+  };
+
+  const handleSendReminders = async () => {
+    if (!selectedContracts.length) return;
+    await Promise.all(
+      selectedContracts.map((contract) =>
+        saveContractReminder(
+          contract.id,
+          `Renewal reminder for ${contract.name}`,
+          contract.nextDeadline
+        )
+      )
+    );
+    setInfoMessage(`Scheduled ${selectedContracts.length} renewal reminder(s).`);
+  };
+
+  const handleExportSelected = () => {
+    if (!selectedContracts.length) return;
+    const header = ["id", "name", "vendor", "status", "riskLevel", "renewalDate", "owner"];
+    const rows = selectedContracts.map((contract) =>
+      [
+        contract.id,
+        contract.name,
+        contract.vendor,
+        contract.status,
+        contract.riskLevel,
+        contract.renewalDate ?? "",
+        contract.owner
+      ]
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(",")
+    );
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "contracts-export.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    setInfoMessage(`Exported ${selectedContracts.length} contract(s) to CSV.`);
+  };
+
+  const handleAssignOwner = async () => {
+    if (!selectedContracts.length) return;
+    const nextOwner = window.prompt("Assign owner", "Legal");
+    if (!nextOwner) return;
+    setContracts((prev) =>
+      prev.map((contract) =>
+        selectedIds.has(contract.id) ? { ...contract, owner: nextOwner } : contract
+      )
+    );
+    await bulkAssignOwner(Array.from(selectedIds), nextOwner);
+    setInfoMessage(`Assigned owner "${nextOwner}" to ${selectedContracts.length} contract(s).`);
+  };
+
+  const handleArchiveSelected = async () => {
+    if (!selectedContracts.length) return;
+    setContracts((prev) =>
+      prev.map((contract) =>
+        selectedIds.has(contract.id) ? { ...contract, status: "expired" } : contract
+      )
+    );
+    await bulkArchiveContracts(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    setInfoMessage(`Archived ${selectedContracts.length} contract(s).`);
+  };
+
   return (
     <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt"
+          className="hidden"
+          onChange={handleUploadChange}
+        />
+
+        {infoMessage && (
+          <Card className="border border-border bg-card">
+            <CardContent className="py-3 text-xs text-muted-foreground">{infoMessage}</CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <section className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -151,15 +353,17 @@ export function ContractsPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => setShowFilterBar((prev) => !prev)}
               >
                 <Filter className="mr-1.5 h-3.5 w-3.5" />
-                Filters
+                {showFilterBar ? "Hide filters" : "Show filters"}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={cycleSort}
               >
-                Sort
+                {sortLabel}
                 <ChevronDown className="ml-1.5 h-3 w-3" />
               </Button>
             </div>
@@ -167,6 +371,7 @@ export function ContractsPage() {
               size="sm"
               variant="primary"
               className="h-9 rounded-full text-xs font-medium"
+              onClick={triggerUpload}
             >
               Upload Contract
             </Button>
@@ -174,33 +379,38 @@ export function ContractsPage() {
         </section>
 
         {/* Filter bar */}
-        <section className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {quickFilters.map((label) => (
-              <Chip
-                key={label}
-                active={quickFilter === label}
-                onClick={() => setQuickFilter(label)}
-                className="text-[11px]"
-              >
-                {label}
-              </Chip>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">
-            <span>Status</span>
-            <span>•</span>
-            <span>Risk level</span>
-            <span>•</span>
-            <span>Vendor</span>
-            <span>•</span>
-            <span>Type</span>
-            <span>•</span>
-            <span>Renewal window</span>
-            <span>•</span>
-            <span>Owner</span>
-          </div>
-        </section>
+        {showFilterBar && (
+          <section className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {quickFilters.map((label) => (
+                <Chip
+                  key={label}
+                  active={quickFilter === label}
+                  onClick={() => {
+                    setQuickFilter(label);
+                    setPage(1);
+                  }}
+                  className="text-[11px]"
+                >
+                  {label}
+                </Chip>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">
+              <span>Status</span>
+              <span>•</span>
+              <span>Risk level</span>
+              <span>•</span>
+              <span>Vendor</span>
+              <span>•</span>
+              <span>Type</span>
+              <span>•</span>
+              <span>Renewal window</span>
+              <span>•</span>
+              <span>Owner</span>
+            </div>
+          </section>
+        )}
 
         {/* Bulk actions */}
         {selectedIds.size > 0 && (
@@ -216,6 +426,7 @@ export function ContractsPage() {
                     variant="primary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleSendReminders}
                   >
                     Send renewal reminders
                   </Button>
@@ -223,6 +434,7 @@ export function ContractsPage() {
                     variant="secondary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleExportSelected}
                   >
                     Export
                   </Button>
@@ -230,6 +442,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleAssignOwner}
                   >
                     Assign owner
                   </Button>
@@ -237,6 +450,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleArchiveSelected}
                   >
                     Archive
                   </Button>
@@ -250,14 +464,20 @@ export function ContractsPage() {
           <div className="flex min-w-0 flex-1 flex-col gap-3">
             <Card className="border border-border bg-card">
               <CardContent className="px-5 pb-4 pt-3">
-                <ContractsTable
-                  contracts={pageContracts}
-                  allPageSelected={allPageSelected}
-                  onToggleAll={toggleSelectAllPage}
-                  onRowToggle={toggleRowSelection}
-                  onRowClick={handleRowClick}
-                  selectedIds={selectedIds}
-                />
+                {isLoading ? (
+                  <p className="py-8 text-center text-xs text-muted-foreground">
+                    Loading contracts...
+                  </p>
+                ) : (
+                  <ContractsTable
+                    contracts={pageContracts}
+                    allPageSelected={allPageSelected}
+                    onToggleAll={toggleSelectAllPage}
+                    onRowToggle={toggleRowSelection}
+                    onRowClick={handleRowClick}
+                    selectedIds={selectedIds}
+                  />
+                )}
               </CardContent>
             </Card>
 
@@ -336,20 +556,38 @@ export function ContractsPage() {
         </section>
 
         {/* Empty state */}
-        {total === 0 && (
+        {!isLoading && total === 0 && (
           <section>
             <Card className="border border-border bg-card">
               <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
                 <h2 className="text-sm font-semibold text-primary">
-                  No contracts yet
+                  {contracts.length === 0 ? "No contracts yet" : "No matching contracts"}
                 </h2>
                 <p className="max-w-sm text-[11px] text-muted">
-                  Upload your first contract to start monitoring risk,
-                  renewals, and key obligations across your portfolio.
+                  {contracts.length === 0
+                    ? "Upload your first contract to start monitoring risk, renewals, and key obligations across your portfolio."
+                    : "Try changing your search or quick filters to find matching contracts."}
                 </p>
-                <Button variant="primary" className="mt-1 rounded-full px-4 text-xs font-medium">
-                  Upload Contract
-                </Button>
+                {contracts.length === 0 ? (
+                  <Button
+                    variant="primary"
+                    className="mt-1 rounded-full px-4 text-xs font-medium"
+                    onClick={triggerUpload}
+                  >
+                    Upload Contract
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="mt-1 rounded-full px-4 text-xs font-medium"
+                    onClick={() => {
+                      setSearch("");
+                      setQuickFilter("All");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </section>
@@ -403,6 +641,13 @@ function ContractsTable({
           </tr>
         </thead>
         <tbody>
+        {contracts.length === 0 && (
+          <tr>
+            <td colSpan={9} className="px-4 py-8 text-center text-xs text-muted-foreground">
+              No contracts available on this page.
+            </td>
+          </tr>
+        )}
         {contracts.map((contract) => {
           const isSelected = selectedIds.has(contract.id);
           const renewalLabel = contract.renewalDate

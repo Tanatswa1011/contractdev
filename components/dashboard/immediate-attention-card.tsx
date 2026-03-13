@@ -4,18 +4,40 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { immediateAttentionContract } from "@/data/contracts";
 import { AlertTriangle, BellRing, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
+import { useDashboardStore } from "@/store/use-dashboard-store";
+import { saveContractReminder } from "@/lib/contracts-repository";
 
 export function ImmediateAttentionCard() {
   const [reminderSent, setReminderSent] = useState(false);
-  const c = immediateAttentionContract;
-  if (!c) return null;
+  const contracts = useDashboardStore((state) => state.contracts);
+  const c = contracts
+    .filter((contract) => contract.riskLevel === "high")
+    .sort(
+      (a, b) => new Date(a.nextDeadline).getTime() - new Date(b.nextDeadline).getTime()
+    )[0];
+
+  if (!c) {
+    return (
+      <section aria-label="Contracts requiring immediate attention">
+        <Card className="border border-border bg-card">
+          <CardContent className="py-6 text-sm text-muted-foreground">
+            No high-risk contracts need immediate action right now.
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
 
   const deadlineLabel = format(new Date(c.nextDeadline), "MMM d, yyyy");
 
-  const handleSendReminder = () => {
+  const handleSendReminder = async () => {
+    await saveContractReminder(
+      c.id,
+      `Renewal reminder for ${c.name}`,
+      new Date(c.nextDeadline).toISOString()
+    );
     setReminderSent(true);
     setTimeout(() => setReminderSent(false), 3000);
   };

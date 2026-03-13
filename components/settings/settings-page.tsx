@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +16,18 @@ import {
   Calendar,
   MessageSquare,
   Zap,
-  Webhook,
+  Webhook
 } from "lucide-react";
 import { format } from "date-fns";
 import { useTheme } from "@/components/settings/use-theme";
+import {
+  WorkspaceMember,
+  WorkspaceSettingsData,
+  inviteWorkspaceMember,
+  listWorkspaceMembers,
+  loadWorkspaceSettings,
+  saveWorkspaceSettings
+} from "@/lib/settings-repository";
 
 const TABS = [
   "General",
@@ -31,33 +39,91 @@ const TABS = [
   "Danger Zone",
 ] as const;
 type TabId = (typeof TABS)[number];
+const DEFAULT_SETTINGS: WorkspaceSettingsData = {
+  workspaceName: "ContractGuardAI",
+  notificationChannels: {
+    email: true,
+    "in-app": true,
+    slack: false,
+    teams: false
+  },
+  notificationEvents: {
+    expiring: true,
+    risk: true,
+    uploaded: false,
+    renewal: true,
+    clause: true
+  },
+  aiSettings: {
+    autoAnalyze: false,
+    secureMode: false,
+    metadataOnly: false,
+    retainHistory: true,
+    riskSensitivity: "Medium",
+    clauseDepth: "Standard",
+    language: "Auto-detect",
+    summaryStyle: "Concise"
+  },
+  integrations: {
+    google: "Connected",
+    slack: "Not connected",
+    zapier: "Not connected",
+    webhooks: "Active"
+  }
+};
 
-// Mock members
-const MOCK_MEMBERS = [
-  { id: "1", name: "Workspace owner", role: "Admin", email: "team@contractguard.ai", dateAdded: "2026-03-04", status: "Active" as const },
-];
-// Mock integrations
 const INTEGRATIONS = [
-  { id: "google", name: "Google Calendar", desc: "Sync contract deadlines and reminders to your calendar.", status: "Connected" as const, action: "Manage" },
-  { id: "slack", name: "Slack", desc: "Send alerts to channels when contracts change state.", status: "Not connected" as const, action: "Connect" },
-  { id: "zapier", name: "Zapier", desc: "Trigger workflows in thousands of external tools.", status: "Not connected" as const, action: "Connect" },
-  { id: "webhooks", name: "Webhooks", desc: "Send structured events to your own systems.", status: "Active" as const, action: "Manage" },
-];
+  { id: "google", name: "Google Calendar", desc: "Sync contract deadlines and reminders to your calendar." },
+  { id: "slack", name: "Slack", desc: "Send alerts to channels when contracts change state." },
+  { id: "zapier", name: "Zapier", desc: "Trigger workflows in thousands of external tools." },
+  { id: "webhooks", name: "Webhooks", desc: "Send structured events to your own systems." }
+] as const;
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("General");
   const [darkMode, setDarkMode] = useTheme();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [settings, setSettings] = useState<WorkspaceSettingsData>(DEFAULT_SETTINGS);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadWorkspaceSettings().then((result) => {
+      if (!isMounted) return;
+      setSettings(result.settings);
+      if (result.warning) {
+        setNotice(`Settings sync warning: ${result.warning}`);
+      } else if (result.source === "local") {
+        setNotice("Supabase settings sync is unavailable. Changes are stored locally for this session.");
+      }
+    });
+    listWorkspaceMembers().then((data) => {
+      if (isMounted) setMembers(data);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
     const url = URL.createObjectURL(file);
     setAvatarUrl(url);
+    setNotice("Avatar updated for this browser session.");
   };
 
   const triggerAvatarUpload = () => fileInputRef.current?.click();
+
+  const updateSettings = (updater: (prev: WorkspaceSettingsData) => WorkspaceSettingsData) => {
+    setSettings((prev) => {
+      const next = updater(prev);
+      saveWorkspaceSettings(next);
+      return next;
+    });
+  };
 
   return (
     <Card className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
@@ -108,20 +174,70 @@ export function SettingsPage() {
       </nav>
 
       <CardContent className="p-6">
+        {notice && (
+          <div className="mb-4 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            {notice}
+          </div>
+        )}
+
         {activeTab === "General" && (
           <GeneralTab
             avatarUrl={avatarUrl}
             onAvatarClick={triggerAvatarUpload}
             fileInputRef={fileInputRef}
             onAvatarChange={handleAvatarChange}
+            workspaceName={settings.workspaceName}
+            onWorkspaceNameChange={(workspaceName) =>
+              updateSettings((prev) => ({ ...prev, workspaceName }))
+            }
+            onAction={setNotice}
           />
         )}
-        {activeTab === "Notifications" && <NotificationsTab />}
-        {activeTab === "Members" && <MembersTab />}
-        {activeTab === "Integrations" && <IntegrationsTab />}
-        {activeTab === "AI Settings" && <AISettingsTab />}
-        {activeTab === "Billing" && <BillingTab />}
-        {activeTab === "Danger Zone" && <DangerZoneTab />}
+        {activeTab === "Notifications" && (
+          <NotificationsTab
+            channels={settings.notificationChannels}
+            events={settings.notificationEvents}
+            onChannelsChange={(channels) => updateSettings((prev) => ({ ...prev, notificationChannels: channels }))}
+            onEventsChange={(events) => updateSettings((prev) => ({ ...prev, notificationEvents: events }))}
+          />
+        )}
+        {activeTab === "Members" && (
+          <MembersTab
+            members={members}
+            setMembers={setMembers}
+            onAction={setNotice}
+          />
+        )}
+        {activeTab === "Integrations" && (
+          <IntegrationsTab
+            integrations={settings.integrations}
+            onToggle={(id) =>
+              updateSettings((prev) => ({
+                ...prev,
+                integrations: {
+                  ...prev.integrations,
+                  [id]:
+                    prev.integrations[id] === "Connected" || prev.integrations[id] === "Active"
+                      ? "Not connected"
+                      : "Connected"
+                }
+              }))
+            }
+          />
+        )}
+        {activeTab === "AI Settings" && (
+          <AISettingsTab
+            aiSettings={settings.aiSettings}
+            onChange={(key, value) =>
+              updateSettings((prev) => ({
+                ...prev,
+                aiSettings: { ...prev.aiSettings, [key]: value }
+              }))
+            }
+          />
+        )}
+        {activeTab === "Billing" && <BillingTab onAction={setNotice} />}
+        {activeTab === "Danger Zone" && <DangerZoneTab onAction={setNotice} />}
       </CardContent>
     </Card>
   );
@@ -133,11 +249,17 @@ function GeneralTab({
   onAvatarClick,
   fileInputRef,
   onAvatarChange,
+  workspaceName,
+  onWorkspaceNameChange,
+  onAction
 }: {
   avatarUrl: string | null;
   onAvatarClick: () => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onAvatarChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  workspaceName: string;
+  onWorkspaceNameChange: (value: string) => void;
+  onAction: (message: string) => void;
 }) {
   return (
     <div className="space-y-8">
@@ -188,8 +310,20 @@ function GeneralTab({
         <div className="mt-4 space-y-3">
           <div>
             <label className="text-xs text-muted-foreground">Workspace name</label>
-            <Input className="mt-1 max-w-sm" placeholder="ContractGuardAI" defaultValue="ContractGuardAI" />
+            <Input
+              className="mt-1 max-w-sm"
+              placeholder="ContractGuardAI"
+              value={workspaceName}
+              onChange={(e) => onWorkspaceNameChange(e.target.value)}
+            />
           </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onAction("Workspace settings saved.")}
+          >
+            Save workspace settings
+          </Button>
         </div>
       </section>
     </div>
@@ -214,7 +348,17 @@ const NOTIFICATION_CHANNELS = [
   { id: "sms", name: "SMS", desc: "SMS alerts for urgent contract events.", available: false },
 ];
 
-function NotificationsTab() {
+function NotificationsTab({
+  channels,
+  events,
+  onChannelsChange,
+  onEventsChange
+}: {
+  channels: Record<string, boolean>;
+  events: Record<string, boolean>;
+  onChannelsChange: (next: Record<string, boolean>) => void;
+  onEventsChange: (next: Record<string, boolean>) => void;
+}) {
   return (
     <div className="space-y-8">
       <section>
@@ -242,12 +386,12 @@ function NotificationsTab() {
               )}
             </div>
             {channel.available && (
-              <button
-                type="button"
-                className="relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border bg-foreground"
-              >
-                <span className="inline-block h-5 w-5 translate-x-6 translate-y-0.5 rounded-full bg-background shadow-sm" />
-              </button>
+              <Toggle
+                checked={Boolean(channels[channel.id])}
+                onChange={(value) =>
+                  onChannelsChange({ ...channels, [channel.id]: value })
+                }
+              />
             )}
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">{channel.desc}</p>
@@ -260,12 +404,13 @@ function NotificationsTab() {
                   className="flex items-center justify-between rounded-lg border border-border bg-card/50 px-3 py-2"
                 >
                   <span className="text-xs text-foreground">{item.label}</span>
-                  <button
-                    type="button"
-                    className="relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border bg-muted"
-                  >
-                    <span className="inline-block h-4 w-4 translate-x-0.5 translate-y-0.5 rounded-full bg-background shadow-sm" />
-                  </button>
+                  <Toggle
+                    checked={Boolean(events[item.id])}
+                    onChange={(value) =>
+                      onEventsChange({ ...events, [item.id]: value })
+                    }
+                    compact
+                  />
                 </div>
               ))}
             </div>
@@ -277,8 +422,67 @@ function NotificationsTab() {
 }
 
 // --- Members ---
-function MembersTab() {
+function MembersTab({
+  members,
+  setMembers,
+  onAction
+}: {
+  members: WorkspaceMember[];
+  setMembers: React.Dispatch<React.SetStateAction<WorkspaceMember[]>>;
+  onAction: (message: string) => void;
+}) {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("All roles");
+  const [statusFilter, setStatusFilter] = useState("All statuses");
+  const filteredMembers = members.filter((member) => {
+    const query = search.toLowerCase();
+    const textMatch =
+      member.name.toLowerCase().includes(query) ||
+      member.email.toLowerCase().includes(query);
+    const roleMatch = roleFilter === "All roles" || member.role === roleFilter;
+    const statusMatch = statusFilter === "All statuses" || member.status === statusFilter;
+    return textMatch && roleMatch && statusMatch;
+  });
+
+  const admins = members.filter((member) => member.role === "Admin").length;
+  const normalMembers = members.filter((member) => member.role === "Member").length;
+  const viewers = members.filter((member) => member.role === "Viewer").length;
+
+  const exportCsv = () => {
+    const csv = ["name,email,role,status"]
+      .concat(filteredMembers.map((member) => `${member.name},${member.email},${member.role},${member.status}`))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "workspace-members.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    onAction("Exported members CSV.");
+  };
+
+  const inviteMember = async () => {
+    const email = window.prompt("Invite member email");
+    if (!email) return;
+    const invited = await inviteWorkspaceMember(email);
+    if (invited) {
+      setMembers((prev) => [invited, ...prev]);
+      onAction(`Invitation created for ${email}.`);
+      return;
+    }
+    const fallback: WorkspaceMember = {
+      id: `local-${Date.now()}`,
+      name: email.split("@")[0],
+      email,
+      role: "Member",
+      status: "Invited",
+      dateAdded: new Date().toISOString()
+    };
+    setMembers((prev) => [fallback, ...prev]);
+    onAction("Supabase invite endpoint unavailable. Added pending invitation locally.");
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -288,15 +492,15 @@ function MembersTab() {
         </p>
         <div className="mt-4 flex gap-6">
           <div>
-            <span className="text-2xl font-semibold text-foreground">1</span>
+            <span className="text-2xl font-semibold text-foreground">{admins}</span>
             <p className="text-xs text-muted-foreground">Admins</p>
           </div>
           <div>
-            <span className="text-2xl font-semibold text-foreground">0</span>
+            <span className="text-2xl font-semibold text-foreground">{normalMembers}</span>
             <p className="text-xs text-muted-foreground">Members</p>
           </div>
           <div>
-            <span className="text-2xl font-semibold text-foreground">0</span>
+            <span className="text-2xl font-semibold text-foreground">{viewers}</span>
             <p className="text-xs text-muted-foreground">Viewers</p>
           </div>
         </div>
@@ -317,17 +521,30 @@ function MembersTab() {
               className="pl-9"
             />
           </div>
-          <select className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
+          <select
+            className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
             <option>All roles</option>
+            <option>Admin</option>
+            <option>Member</option>
+            <option>Viewer</option>
           </select>
-          <select className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
+          <select
+            className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
             <option>All statuses</option>
+            <option>Active</option>
+            <option>Invited</option>
           </select>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="mr-1.5 h-3.5 w-3.5" />
             Export CSV
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={inviteMember}>
             <UserPlus className="mr-1.5 h-3.5 w-3.5" />
             Invite member
           </Button>
@@ -344,7 +561,14 @@ function MembersTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {MOCK_MEMBERS.map((m) => (
+              {filteredMembers.length === 0 && (
+                <tr className="bg-card">
+                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    No members match your current filters.
+                  </td>
+                </tr>
+              )}
+              {filteredMembers.map((m) => (
                 <tr key={m.id} className="bg-card">
                   <td className="px-4 py-3 text-foreground">{m.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{m.role}</td>
@@ -358,14 +582,22 @@ function MembersTab() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">Showing 1–1 · Page 1</p>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Showing {filteredMembers.length ? `1–${filteredMembers.length}` : "0"} · Page 1
+        </p>
       </section>
     </div>
   );
 }
 
 // --- Integrations ---
-function IntegrationsTab() {
+function IntegrationsTab({
+  integrations,
+  onToggle
+}: {
+  integrations: Record<string, string>;
+  onToggle: (id: string) => void;
+}) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
@@ -382,13 +614,21 @@ function IntegrationsTab() {
                 {int.id === "webhooks" && <Webhook className="h-5 w-5 text-muted-foreground" />}
                 <span className="text-sm font-semibold text-foreground">{int.name}</span>
               </div>
-              <Badge variant={int.status === "Connected" || int.status === "Active" ? "success" : "default"}>
-                {int.status}
+              <Badge
+                variant={
+                  integrations[int.id] === "Connected" || integrations[int.id] === "Active"
+                    ? "success"
+                    : "default"
+                }
+              >
+                {integrations[int.id] ?? "Not connected"}
               </Badge>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">{int.desc}</p>
-            <Button variant="outline" size="sm" className="mt-3">
-              {int.action}
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => onToggle(int.id)}>
+              {integrations[int.id] === "Connected" || integrations[int.id] === "Active"
+                ? "Manage"
+                : "Connect"}
             </Button>
           </Card>
         ))}
@@ -398,7 +638,13 @@ function IntegrationsTab() {
 }
 
 // --- AI Settings ---
-function AISettingsTab() {
+function AISettingsTab({
+  aiSettings,
+  onChange
+}: {
+  aiSettings: Record<string, string | boolean>;
+  onChange: (key: string, value: string | boolean) => void;
+}) {
   return (
     <div className="space-y-8">
       <section>
@@ -408,19 +654,38 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Auto-analyze contracts on upload" desc="Run analysis when a contract is uploaded.">
-            <Toggle off />
+            <Toggle
+              checked={Boolean(aiSettings.autoAnalyze)}
+              onChange={(value) => onChange("autoAnalyze", value)}
+            />
           </SettingRow>
           <SettingRow label="Risk sensitivity" desc="Higher sensitivity flags more contracts as risky.">
-            <Select options={["Low", "Medium", "High"]} value="Medium" />
+            <Select
+              options={["Low", "Medium", "High"]}
+              value={String(aiSettings.riskSensitivity ?? "Medium")}
+              onChange={(value) => onChange("riskSensitivity", value)}
+            />
           </SettingRow>
           <SettingRow label="Clause extraction depth" desc="Choose the level of data for extracted clauses.">
-            <Select options={["Basic", "Standard", "Full"]} value="Standard" />
+            <Select
+              options={["Basic", "Standard", "Full"]}
+              value={String(aiSettings.clauseDepth ?? "Standard")}
+              onChange={(value) => onChange("clauseDepth", value)}
+            />
           </SettingRow>
           <SettingRow label="Language detection" desc="Automatically detect the contract language or set manually.">
-            <Select options={["Auto-detect", "English", "Other"]} value="Auto-detect" />
+            <Select
+              options={["Auto-detect", "English", "Other"]}
+              value={String(aiSettings.language ?? "Auto-detect")}
+              onChange={(value) => onChange("language", value)}
+            />
           </SettingRow>
           <SettingRow label="Summary style" desc="Control how contract summaries are provided.">
-            <Select options={["Concise", "Detailed"]} value="Concise" />
+            <Select
+              options={["Concise", "Detailed"]}
+              value={String(aiSettings.summaryStyle ?? "Concise")}
+              onChange={(value) => onChange("summaryStyle", value)}
+            />
           </SettingRow>
         </div>
       </section>
@@ -431,13 +696,22 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Enable secure analysis mode" desc="Process data in a isolated environment.">
-            <Toggle off />
+            <Toggle
+              checked={Boolean(aiSettings.secureMode)}
+              onChange={(value) => onChange("secureMode", value)}
+            />
           </SettingRow>
           <SettingRow label="Store extracted metadata only" desc="Do not store full contract text.">
-            <Toggle off />
+            <Toggle
+              checked={Boolean(aiSettings.metadataOnly)}
+              onChange={(value) => onChange("metadataOnly", value)}
+            />
           </SettingRow>
           <SettingRow label="Retain AI analysis history" desc="Keep history of past analyses.">
-            <Toggle off />
+            <Toggle
+              checked={Boolean(aiSettings.retainHistory)}
+              onChange={(value) => onChange("retainHistory", value)}
+            />
           </SettingRow>
         </div>
       </section>
@@ -465,29 +739,49 @@ function SettingRow({
   );
 }
 
-function Toggle({ off = false }: { off?: boolean }) {
+function Toggle({
+  checked,
+  onChange,
+  compact = false
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  compact?: boolean;
+}) {
   return (
     <button
       type="button"
+      onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border transition-colors",
-        off ? "bg-muted" : "bg-foreground"
+        "relative inline-flex shrink-0 rounded-full border border-border transition-colors",
+        compact ? "h-5 w-9" : "h-6 w-11",
+        checked ? "bg-foreground" : "bg-muted"
       )}
     >
       <span
         className={cn(
-          "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm",
-          off ? "translate-x-0.5" : "translate-x-6"
+          "inline-block rounded-full bg-background shadow-sm",
+          compact ? "h-4 w-4 translate-y-0.5" : "h-5 w-5 translate-y-0.5",
+          compact ? (checked ? "translate-x-4" : "translate-x-0.5") : checked ? "translate-x-6" : "translate-x-0.5"
         )}
       />
     </button>
   );
 }
 
-function Select({ options, value }: { options: string[]; value: string }) {
+function Select({
+  options,
+  value,
+  onChange
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <select
-      defaultValue={value}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
       className="h-9 min-w-[120px] rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
     >
       {options.map((o) => (
@@ -498,7 +792,18 @@ function Select({ options, value }: { options: string[]; value: string }) {
 }
 
 // --- Billing ---
-function BillingTab() {
+function BillingTab({ onAction }: { onAction: (message: string) => void }) {
+  const downloadInvoice = (period: string) => {
+    const text = `Invoice\nPeriod: ${period}\nPlan: Pro Monthly\nAmount: EUR 19.00`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `invoice-${period.replace(/\s+/g, "-").toLowerCase()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -538,8 +843,16 @@ function BillingTab() {
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            <Button variant="primary" size="sm">Upgrade plan</Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="primary" size="sm" onClick={() => onAction("TODO: connect billing plan upgrade flow.")}>
+              Upgrade plan
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                onAction("TODO: integrate Stripe billing portal for self-serve billing management.")
+              }
+            >
               Manage billing
             </Button>
           </div>
@@ -581,7 +894,9 @@ function BillingTab() {
           <p className="text-[11px] text-muted-foreground">
             No payment method added yet.
           </p>
-          <Button variant="primary" size="sm">Add payment method</Button>
+          <Button variant="primary" size="sm" onClick={() => onAction("TODO: add secure payment method form.")}>
+            Add payment method
+          </Button>
         </div>
       </section>
 
@@ -606,7 +921,11 @@ function BillingTab() {
           </div>
         </div>
         <div className="mt-4">
-          <Button variant="secondary" size="sm">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onAction("TODO: wire billing info update form to backend billing profile.")}
+          >
             Update billing info
           </Button>
         </div>
@@ -638,7 +957,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" onClick={() => downloadInvoice("Mar 4, 2026")}>
                     Download
                   </Button>
                 </td>
@@ -651,7 +970,7 @@ function BillingTab() {
                   <Badge variant="success">Paid</Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" onClick={() => downloadInvoice("Feb 4, 2026")}>
                     Download
                   </Button>
                 </td>
@@ -673,8 +992,16 @@ function BillingTab() {
           <li>Priority support for enterprise contracts.</li>
         </ul>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button variant="primary" size="sm">View plans</Button>
-          <Button variant="secondary" size="sm">
+          <Button variant="primary" size="sm" onClick={() => onAction("TODO: connect plans catalog route.")}>
+            View plans
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              window.location.assign("mailto:sales@contractguard.ai?subject=ContractGuardAI%20Sales")
+            }
+          >
             Contact sales
           </Button>
         </div>
@@ -684,7 +1011,7 @@ function BillingTab() {
 }
 
 // --- Danger Zone ---
-function DangerZoneTab() {
+function DangerZoneTab({ onAction }: { onAction: (message: string) => void }) {
   return (
     <div className="space-y-6">
       <div>
@@ -698,16 +1025,25 @@ function DangerZoneTab() {
           title="Delete workspace"
           desc="Remove this workspace and all configuration. Contracts and billing data remain available to the account owner."
           action="Delete"
+          onAction={() =>
+            onAction("TODO: workspace deletion requires server-side ownership checks before enabling.")
+          }
         />
         <DangerRow
           title="Delete account"
           desc="Permanently delete your account and all associated data."
           action="Delete"
+          onAction={() =>
+            onAction("TODO: account deletion must use secure auth re-verification and backend cleanup.")
+          }
         />
         <DangerRow
           title="Remove all contract data"
           desc="Delete all uploaded contracts and analysis from this workspace."
           action="Delete"
+          onAction={() =>
+            onAction("TODO: bulk contract purge endpoint is not wired yet. Use Supabase SQL for manual cleanup.")
+          }
         />
       </div>
     </div>
@@ -718,10 +1054,12 @@ function DangerRow({
   title,
   desc,
   action,
+  onAction
 }: {
   title: string;
   desc: string;
   action: string;
+  onAction: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -729,7 +1067,7 @@ function DangerRow({
         <p className="text-xs font-medium text-foreground">{title}</p>
         <p className="text-[11px] text-muted-foreground">{desc}</p>
       </div>
-      <Button variant="danger" size="sm">
+      <Button variant="danger" size="sm" onClick={onAction}>
         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
         {action}
       </Button>
