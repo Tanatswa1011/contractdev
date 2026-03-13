@@ -108,7 +108,7 @@ export function ContractsTable({ contracts }: ContractsTableProps) {
       cell: ({ row }) => (
         <div onClick={(e) => e.stopPropagation()}>
           <Button variant="secondary" size="sm" className="h-7 rounded-full px-2 text-[11px]" asChild>
-            <Link href={`/contracts/${row.original.id}`}>
+            <Link href={`/contracts/${row.original.slug}`}>
               <ExternalLink className="mr-1 h-3 w-3" />
               View
             </Link>

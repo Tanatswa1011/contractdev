@@ -1,7 +1,13 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +26,9 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { useTheme } from "@/components/settings/use-theme";
+import { useAppData } from "@/components/app/app-data-provider";
+import { createDownload } from "@/lib/app-data";
+import { AiSettings, NotificationPreferences, WorkspaceMember } from "@/types/contract";
 
 const TABS = [
   "General",
@@ -32,32 +41,90 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number];
 
-// Mock members
-const MOCK_MEMBERS = [
-  { id: "1", name: "Workspace owner", role: "Admin", email: "team@contractguard.ai", dateAdded: "2026-03-04", status: "Active" as const },
-];
-// Mock integrations
-const INTEGRATIONS = [
-  { id: "google", name: "Google Calendar", desc: "Sync contract deadlines and reminders to your calendar.", status: "Connected" as const, action: "Manage" },
-  { id: "slack", name: "Slack", desc: "Send alerts to channels when contracts change state.", status: "Not connected" as const, action: "Connect" },
-  { id: "zapier", name: "Zapier", desc: "Trigger workflows in thousands of external tools.", status: "Not connected" as const, action: "Connect" },
-  { id: "webhooks", name: "Webhooks", desc: "Send structured events to your own systems.", status: "Active" as const, action: "Manage" },
-];
+const INTEGRATION_META = [
+  {
+    id: "google",
+    name: "Google Calendar",
+    desc: "Sync contract deadlines and reminders to your calendar.",
+    icon: Calendar,
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    desc: "Send alerts to channels when contracts change state.",
+    icon: MessageSquare,
+  },
+  {
+    id: "zapier",
+    name: "Zapier",
+    desc: "Trigger workflows in thousands of external tools.",
+    icon: Zap,
+  },
+  {
+    id: "webhooks",
+    name: "Webhooks",
+    desc: "Send structured events to your own systems.",
+    icon: Webhook,
+  },
+] as const;
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("General");
   const [darkMode, setDarkMode] = useTheme();
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [generalMessage, setGeneralMessage] = useState<string | null>(null);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [dangerMessage, setDangerMessage] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    isReady,
+    workspace,
+    profile,
+    settings,
+    members,
+    contracts,
+    saveGeneralSettings,
+    saveNotificationSettings,
+    saveAiSettings,
+    saveBillingInfo,
+    toggleIntegration,
+    inviteMember,
+    deleteAllContractData,
+  } = useAppData();
+  const [fullName, setFullName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [notificationDraft, setNotificationDraft] =
+    useState<NotificationPreferences | null>(null);
+  const [aiDraft, setAiDraft] = useState<AiSettings | null>(null);
+  const [billingEmail, setBillingEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [vatId, setVatId] = useState("");
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
-    setAvatarUrl(url);
-  };
+  useEffect(() => {
+    if (!profile || !workspace || !settings) {
+      return;
+    }
+
+    setFullName(profile.fullName);
+    setWorkspaceName(workspace.name);
+    setNotificationDraft(settings.notificationPreferences);
+    setAiDraft(settings.aiSettings);
+    setBillingEmail(settings.billingSnapshot.billingEmail);
+    setCompanyName(settings.billingSnapshot.companyName);
+    setVatId(settings.billingSnapshot.vatId);
+  }, [profile, settings, workspace]);
 
   const triggerAvatarUpload = () => fileInputRef.current?.click();
+
+  if (!isReady || !workspace || !profile || !settings || !notificationDraft || !aiDraft) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+        <p className="text-sm text-muted-foreground">Loading settings…</p>
+      </main>
+    );
+  }
 
   return (
     <Card className="overflow-hidden rounded-[var(--radius)] border border-border bg-card">
@@ -89,7 +156,7 @@ export function SettingsPage() {
         </div>
       </CardHeader>
 
-      <nav className="flex gap-1 border-b border-border px-5">
+      <nav className="flex gap-1 overflow-x-auto border-b border-border px-5">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -110,35 +177,119 @@ export function SettingsPage() {
       <CardContent className="p-6">
         {activeTab === "General" && (
           <GeneralTab
-            avatarUrl={avatarUrl}
-            onAvatarClick={triggerAvatarUpload}
+            profile={profile}
+            fullName={fullName}
+            workspaceName={workspaceName}
+            generalMessage={generalMessage}
             fileInputRef={fileInputRef}
-            onAvatarChange={handleAvatarChange}
+            avatarFile={avatarFile}
+            onAvatarFileChange={setAvatarFile}
+            onAvatarClick={triggerAvatarUpload}
+            onFullNameChange={setFullName}
+            onWorkspaceNameChange={setWorkspaceName}
+            onSave={async () => {
+              await saveGeneralSettings({
+                fullName,
+                workspaceName,
+                avatarFile,
+              });
+              setGeneralMessage("Profile and workspace settings saved.");
+              setAvatarFile(null);
+            }}
           />
         )}
-        {activeTab === "Notifications" && <NotificationsTab />}
-        {activeTab === "Members" && <MembersTab />}
-        {activeTab === "Integrations" && <IntegrationsTab />}
-        {activeTab === "AI Settings" && <AISettingsTab />}
-        {activeTab === "Billing" && <BillingTab />}
-        {activeTab === "Danger Zone" && <DangerZoneTab />}
+        {activeTab === "Notifications" && (
+          <NotificationsTab
+            draft={notificationDraft}
+            message={notificationMessage}
+            onChange={setNotificationDraft}
+            onSave={async () => {
+              await saveNotificationSettings(notificationDraft);
+              setNotificationMessage("Notification preferences updated.");
+            }}
+          />
+        )}
+        {activeTab === "Members" && <MembersTab members={members} inviteMember={inviteMember} />}
+        {activeTab === "Integrations" && (
+          <IntegrationsTab
+            integrations={settings.integrations}
+            onToggle={toggleIntegration}
+          />
+        )}
+        {activeTab === "AI Settings" && (
+          <AISettingsTab
+            draft={aiDraft}
+            message={aiMessage}
+            onChange={setAiDraft}
+            onSave={async () => {
+              await saveAiSettings(aiDraft);
+              setAiMessage("AI defaults saved.");
+            }}
+          />
+        )}
+        {activeTab === "Billing" && (
+          <BillingTab
+            contractCount={contracts.length}
+            billingSnapshot={settings.billingSnapshot}
+            billingEmail={billingEmail}
+            companyName={companyName}
+            vatId={vatId}
+            message={billingMessage}
+            onBillingEmailChange={setBillingEmail}
+            onCompanyNameChange={setCompanyName}
+            onVatIdChange={setVatId}
+            onSave={async () => {
+              await saveBillingInfo({
+                billingEmail,
+                companyName,
+                vatId,
+              });
+              setBillingMessage("Billing contact information saved.");
+            }}
+          />
+        )}
+        {activeTab === "Danger Zone" && (
+          <DangerZoneTab
+            contractCount={contracts.length}
+            message={dangerMessage}
+            onDeleteAllContracts={async () => {
+              await deleteAllContractData();
+              setDangerMessage("All contract data has been removed from this workspace.");
+            }}
+          />
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// --- General (with Avatar section) ---
 function GeneralTab({
-  avatarUrl,
+  profile,
+  fullName,
+  workspaceName,
+  generalMessage,
+  avatarFile,
   onAvatarClick,
   fileInputRef,
-  onAvatarChange,
+  onAvatarFileChange,
+  onFullNameChange,
+  onWorkspaceNameChange,
+  onSave,
 }: {
-  avatarUrl: string | null;
+  profile: ReturnType<typeof useAppData>["profile"];
+  fullName: string;
+  workspaceName: string;
+  generalMessage: string | null;
+  avatarFile: File | null;
   onAvatarClick: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  onAvatarChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  onAvatarFileChange: (file: File | null) => void;
+  onFullNameChange: (value: string) => void;
+  onWorkspaceNameChange: (value: string) => void;
+  onSave: () => Promise<void>;
 }) {
+  const previewUrl = avatarFile ? URL.createObjectURL(avatarFile) : profile?.avatarUrl ?? null;
+
   return (
     <div className="space-y-8">
       <section>
@@ -152,7 +303,7 @@ function GeneralTab({
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={onAvatarChange}
+            onChange={(event) => onAvatarFileChange(event.target.files?.[0] ?? null)}
             aria-label="Upload avatar"
           />
           <button
@@ -160,8 +311,9 @@ function GeneralTab({
             onClick={onAvatarClick}
             className="flex h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-foreground/40 hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+            {previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previewUrl} alt="Avatar" className="h-full w-full object-cover" />
             ) : (
               <span className="flex h-full w-full items-center justify-center text-muted-foreground">
                 <User className="h-8 w-8" />
@@ -171,7 +323,7 @@ function GeneralTab({
           <div>
             <Button type="button" variant="outline" size="sm" onClick={onAvatarClick}>
               <Upload className="mr-1.5 h-3.5 w-3.5" />
-              {avatarUrl ? "Change avatar" : "Upload avatar"}
+              {previewUrl ? "Change avatar" : "Upload avatar"}
             </Button>
             <p className="mt-2 text-[11px] text-muted-foreground">
               JPG, PNG or GIF. Max 2MB.
@@ -187,8 +339,29 @@ function GeneralTab({
         </p>
         <div className="mt-4 space-y-3">
           <div>
+            <label className="text-xs text-muted-foreground">Full name</label>
+            <Input
+              className="mt-1 max-w-sm"
+              value={fullName}
+              onChange={(event) => onFullNameChange(event.target.value)}
+            />
+          </div>
+          <div>
             <label className="text-xs text-muted-foreground">Workspace name</label>
-            <Input className="mt-1 max-w-sm" placeholder="ContractGuardAI" defaultValue="ContractGuardAI" />
+            <Input
+              className="mt-1 max-w-sm"
+              placeholder="ContractGuardAI"
+              value={workspaceName}
+              onChange={(event) => onWorkspaceNameChange(event.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={onSave}>
+              Save changes
+            </Button>
+            {generalMessage && (
+              <span className="text-[11px] text-muted-foreground">{generalMessage}</span>
+            )}
           </div>
         </div>
       </section>
@@ -196,7 +369,6 @@ function GeneralTab({
   );
 }
 
-// --- Notifications ---
 const NOTIFICATION_ITEMS = [
   { id: "expiring", label: "Contract expiring soon" },
   { id: "risk", label: "Risk level changed" },
@@ -214,7 +386,17 @@ const NOTIFICATION_CHANNELS = [
   { id: "sms", name: "SMS", desc: "SMS alerts for urgent contract events.", available: false },
 ];
 
-function NotificationsTab() {
+function NotificationsTab({
+  draft,
+  message,
+  onChange,
+  onSave,
+}: {
+  draft: NotificationPreferences;
+  message: string | null;
+  onChange: (next: NotificationPreferences) => void;
+  onSave: () => Promise<void>;
+}) {
   return (
     <div className="space-y-8">
       <section>
@@ -244,9 +426,26 @@ function NotificationsTab() {
             {channel.available && (
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border bg-foreground"
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border",
+                  draft.channels[channel.id] ? "bg-foreground" : "bg-muted"
+                )}
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    channels: {
+                      ...draft.channels,
+                      [channel.id]: !draft.channels[channel.id],
+                    },
+                  })
+                }
               >
-                <span className="inline-block h-5 w-5 translate-x-6 translate-y-0.5 rounded-full bg-background shadow-sm" />
+                <span
+                  className={cn(
+                    "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm",
+                    draft.channels[channel.id] ? "translate-x-6" : "translate-x-0.5"
+                  )}
+                />
               </button>
             )}
           </div>
@@ -262,9 +461,26 @@ function NotificationsTab() {
                   <span className="text-xs text-foreground">{item.label}</span>
                   <button
                     type="button"
-                    className="relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border bg-muted"
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 rounded-full border border-border",
+                      draft.events[item.id] ? "bg-foreground" : "bg-muted"
+                    )}
+                    onClick={() =>
+                      onChange({
+                        ...draft,
+                        events: {
+                          ...draft.events,
+                          [item.id]: !draft.events[item.id],
+                        },
+                      })
+                    }
                   >
-                    <span className="inline-block h-4 w-4 translate-x-0.5 translate-y-0.5 rounded-full bg-background shadow-sm" />
+                    <span
+                      className={cn(
+                        "inline-block h-4 w-4 translate-y-0.5 rounded-full bg-background shadow-sm",
+                        draft.events[item.id] ? "translate-x-4" : "translate-x-0.5"
+                      )}
+                    />
                   </button>
                 </div>
               ))}
@@ -272,13 +488,69 @@ function NotificationsTab() {
           )}
         </section>
       ))}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={onSave}>
+          Save notification settings
+        </Button>
+        {message && <span className="text-[11px] text-muted-foreground">{message}</span>}
+      </div>
     </div>
   );
 }
 
-// --- Members ---
-function MembersTab() {
+function MembersTab({
+  members,
+  inviteMember,
+}: {
+  members: WorkspaceMember[];
+  inviteMember: ReturnType<typeof useAppData>["inviteMember"];
+}) {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<WorkspaceMember["role"]>("member");
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+
+  const filteredMembers = members.filter((member) => {
+    const q = search.toLowerCase().trim();
+    if (
+      q &&
+      !(
+        member.name.toLowerCase().includes(q) ||
+        member.email.toLowerCase().includes(q)
+      )
+    ) {
+      return false;
+    }
+
+    if (roleFilter !== "all" && member.role !== roleFilter) return false;
+    if (statusFilter !== "all" && member.status !== statusFilter) return false;
+    return true;
+  });
+
+  const admins = members.filter((member) => member.role === "admin").length;
+  const workspaceMembers = members.filter((member) => member.role === "member").length;
+  const viewers = members.filter((member) => member.role === "viewer").length;
+
+  const exportMembers = () => {
+    const csv = [
+      ["Name", "Role", "Status", "Email", "Created at"],
+      ...filteredMembers.map((member) => [
+        member.name,
+        member.role,
+        member.status,
+        member.email,
+        member.createdAt,
+      ]),
+    ]
+      .map((row) => row.map((value) => `"${value}"`).join(","))
+      .join("\n");
+
+    createDownload("workspace-members.csv", csv, "text/csv;charset=utf-8");
+  };
+
   return (
     <div className="space-y-8">
       <section>
@@ -288,15 +560,15 @@ function MembersTab() {
         </p>
         <div className="mt-4 flex gap-6">
           <div>
-            <span className="text-2xl font-semibold text-foreground">1</span>
+            <span className="text-2xl font-semibold text-foreground">{admins}</span>
             <p className="text-xs text-muted-foreground">Admins</p>
           </div>
           <div>
-            <span className="text-2xl font-semibold text-foreground">0</span>
+            <span className="text-2xl font-semibold text-foreground">{workspaceMembers}</span>
             <p className="text-xs text-muted-foreground">Members</p>
           </div>
           <div>
-            <span className="text-2xl font-semibold text-foreground">0</span>
+            <span className="text-2xl font-semibold text-foreground">{viewers}</span>
             <p className="text-xs text-muted-foreground">Viewers</p>
           </div>
         </div>
@@ -317,21 +589,70 @@ function MembersTab() {
               className="pl-9"
             />
           </div>
-          <select className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
-            <option>All roles</option>
+          <select
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value)}
+            className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+          >
+            <option value="all">All roles</option>
+            <option value="admin">Admin</option>
+            <option value="member">Member</option>
+            <option value="viewer">Viewer</option>
           </select>
-          <select className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
-            <option>All statuses</option>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="invited">Invited</option>
           </select>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={exportMembers}>
             <Download className="mr-1.5 h-3.5 w-3.5" />
             Export CSV
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={() => setShowInvite((value) => !value)}>
             <UserPlus className="mr-1.5 h-3.5 w-3.5" />
             Invite member
           </Button>
         </div>
+        {showInvite && (
+          <div className="mt-4 flex flex-col gap-2 rounded-[var(--radius)] border border-border bg-muted/20 p-4 sm:flex-row sm:items-center">
+            <Input
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="teammate@company.com"
+              className="sm:max-w-sm"
+            />
+            <select
+              value={inviteRole}
+              onChange={(event) =>
+                setInviteRole(event.target.value as WorkspaceMember["role"])
+              }
+              className="h-9 rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+            >
+              <option value="member">Member</option>
+              <option value="viewer">Viewer</option>
+              <option value="admin">Admin</option>
+            </select>
+            <Button
+              size="sm"
+              onClick={async () => {
+                if (!inviteEmail.trim()) return;
+                await inviteMember({ email: inviteEmail.trim(), role: inviteRole });
+                setInviteEmail("");
+                setInviteRole("member");
+                setInviteMessage("Invitation saved to the workspace member list.");
+              }}
+            >
+              Save invitation
+            </Button>
+          </div>
+        )}
+        {inviteMessage && (
+          <p className="mt-2 text-[11px] text-muted-foreground">{inviteMessage}</p>
+        )}
         <div className="mt-4 overflow-hidden rounded-[var(--radius)] border border-border">
           <table className="w-full text-left text-xs">
             <thead className="bg-muted">
@@ -344,61 +665,94 @@ function MembersTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {MOCK_MEMBERS.map((m) => (
+              {filteredMembers.map((m) => (
                 <tr key={m.id} className="bg-card">
                   <td className="px-4 py-3 text-foreground">{m.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{m.role}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{format(new Date(m.dateAdded), "MMM d, yyyy")}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{format(new Date(m.createdAt), "MMM d, yyyy")}</td>
                   <td className="px-4 py-3 text-muted-foreground">{m.email}</td>
                   <td className="px-4 py-3">
-                    <Badge variant="success">{m.status}</Badge>
+                    <Badge variant={m.status === "active" ? "success" : "outline"}>
+                      {m.status === "active" ? "Active" : "Invited"}
+                    </Badge>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">Showing 1–1 · Page 1</p>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Showing {filteredMembers.length === 0 ? 0 : 1}–{filteredMembers.length} · Page 1
+        </p>
       </section>
     </div>
   );
 }
 
-// --- Integrations ---
-function IntegrationsTab() {
+function IntegrationsTab({
+  integrations,
+  onToggle,
+}: {
+  integrations: NonNullable<ReturnType<typeof useAppData>["settings"]>["integrations"];
+  onToggle: ReturnType<typeof useAppData>["toggleIntegration"];
+}) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
         Connect tools to automate workflows and sync contract events.
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        {INTEGRATIONS.map((int) => (
+        {INTEGRATION_META.map((int) => {
+          const Icon = int.icon;
+          const integrationState = integrations[int.id];
+          const isConnected =
+            integrationState?.status === "connected" || integrationState?.status === "active";
+          return (
           <Card key={int.id} className="rounded-[var(--radius)] border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
-                {int.id === "google" && <Calendar className="h-5 w-5 text-muted-foreground" />}
-                {int.id === "slack" && <MessageSquare className="h-5 w-5 text-muted-foreground" />}
-                {int.id === "zapier" && <Zap className="h-5 w-5 text-muted-foreground" />}
-                {int.id === "webhooks" && <Webhook className="h-5 w-5 text-muted-foreground" />}
+                <Icon className="h-5 w-5 text-muted-foreground" />
                 <span className="text-sm font-semibold text-foreground">{int.name}</span>
               </div>
-              <Badge variant={int.status === "Connected" || int.status === "Active" ? "success" : "default"}>
-                {int.status}
+              <Badge variant={isConnected ? "success" : "default"}>
+                {integrationState?.status === "active"
+                  ? "Active"
+                  : integrationState?.status === "connected"
+                  ? "Connected"
+                  : "Not connected"}
               </Badge>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">{int.desc}</p>
-            <Button variant="outline" size="sm" className="mt-3">
-              {int.action}
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {integrationState?.note ?? "No setup notes saved yet."}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => onToggle(int.id)}
+            >
+              {isConnected ? "Disconnect" : "Save connection state"}
             </Button>
           </Card>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// --- AI Settings ---
-function AISettingsTab() {
+function AISettingsTab({
+  draft,
+  message,
+  onChange,
+  onSave,
+}: {
+  draft: AiSettings;
+  message: string | null;
+  onChange: (next: AiSettings) => void;
+  onSave: () => Promise<void>;
+}) {
   return (
     <div className="space-y-8">
       <section>
@@ -408,19 +762,54 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Auto-analyze contracts on upload" desc="Run analysis when a contract is uploaded.">
-            <Toggle off />
+            <Toggle
+              checked={draft.autoAnalyzeOnUpload}
+              onToggle={() =>
+                onChange({ ...draft, autoAnalyzeOnUpload: !draft.autoAnalyzeOnUpload })
+              }
+            />
           </SettingRow>
           <SettingRow label="Risk sensitivity" desc="Higher sensitivity flags more contracts as risky.">
-            <Select options={["Low", "Medium", "High"]} value="Medium" />
+            <Select
+              options={["Low", "Medium", "High"]}
+              value={draft.riskSensitivity}
+              onChange={(value) =>
+                onChange({ ...draft, riskSensitivity: value as AiSettings["riskSensitivity"] })
+              }
+            />
           </SettingRow>
           <SettingRow label="Clause extraction depth" desc="Choose the level of data for extracted clauses.">
-            <Select options={["Basic", "Standard", "Full"]} value="Standard" />
+            <Select
+              options={["Basic", "Standard", "Full"]}
+              value={draft.clauseExtractionDepth}
+              onChange={(value) =>
+                onChange({
+                  ...draft,
+                  clauseExtractionDepth: value as AiSettings["clauseExtractionDepth"],
+                })
+              }
+            />
           </SettingRow>
           <SettingRow label="Language detection" desc="Automatically detect the contract language or set manually.">
-            <Select options={["Auto-detect", "English", "Other"]} value="Auto-detect" />
+            <Select
+              options={["Auto-detect", "English", "Other"]}
+              value={draft.languageDetection}
+              onChange={(value) =>
+                onChange({
+                  ...draft,
+                  languageDetection: value as AiSettings["languageDetection"],
+                })
+              }
+            />
           </SettingRow>
           <SettingRow label="Summary style" desc="Control how contract summaries are provided.">
-            <Select options={["Concise", "Detailed"]} value="Concise" />
+            <Select
+              options={["Concise", "Detailed"]}
+              value={draft.summaryStyle}
+              onChange={(value) =>
+                onChange({ ...draft, summaryStyle: value as AiSettings["summaryStyle"] })
+              }
+            />
           </SettingRow>
         </div>
       </section>
@@ -431,16 +820,37 @@ function AISettingsTab() {
         </p>
         <div className="mt-4 space-y-4">
           <SettingRow label="Enable secure analysis mode" desc="Process data in a isolated environment.">
-            <Toggle off />
+            <Toggle
+              checked={draft.secureAnalysisMode}
+              onToggle={() =>
+                onChange({ ...draft, secureAnalysisMode: !draft.secureAnalysisMode })
+              }
+            />
           </SettingRow>
           <SettingRow label="Store extracted metadata only" desc="Do not store full contract text.">
-            <Toggle off />
+            <Toggle
+              checked={draft.metadataOnlyStorage}
+              onToggle={() =>
+                onChange({ ...draft, metadataOnlyStorage: !draft.metadataOnlyStorage })
+              }
+            />
           </SettingRow>
           <SettingRow label="Retain AI analysis history" desc="Keep history of past analyses.">
-            <Toggle off />
+            <Toggle
+              checked={draft.retainAnalysisHistory}
+              onToggle={() =>
+                onChange({ ...draft, retainAnalysisHistory: !draft.retainAnalysisHistory })
+              }
+            />
           </SettingRow>
         </div>
       </section>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={onSave}>
+          Save AI settings
+        </Button>
+        {message && <span className="text-[11px] text-muted-foreground">{message}</span>}
+      </div>
     </div>
   );
 }
@@ -465,29 +875,45 @@ function SettingRow({
   );
 }
 
-function Toggle({ off = false }: { off?: boolean }) {
+function Toggle({
+  checked,
+  onToggle,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       type="button"
+      onClick={onToggle}
       className={cn(
         "relative inline-flex h-6 w-11 shrink-0 rounded-full border border-border transition-colors",
-        off ? "bg-muted" : "bg-foreground"
+        checked ? "bg-foreground" : "bg-muted"
       )}
     >
       <span
         className={cn(
           "inline-block h-5 w-5 translate-y-0.5 rounded-full bg-background shadow-sm",
-          off ? "translate-x-0.5" : "translate-x-6"
+          checked ? "translate-x-6" : "translate-x-0.5"
         )}
       />
     </button>
   );
 }
 
-function Select({ options, value }: { options: string[]; value: string }) {
+function Select({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <select
-      defaultValue={value}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
       className="h-9 min-w-[120px] rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
     >
       {options.map((o) => (
@@ -497,8 +923,33 @@ function Select({ options, value }: { options: string[]; value: string }) {
   );
 }
 
-// --- Billing ---
-function BillingTab() {
+function BillingTab({
+  contractCount,
+  billingSnapshot,
+  billingEmail,
+  companyName,
+  vatId,
+  message,
+  onBillingEmailChange,
+  onCompanyNameChange,
+  onVatIdChange,
+  onSave,
+}: {
+  contractCount: number;
+  billingSnapshot: NonNullable<ReturnType<typeof useAppData>["settings"]>["billingSnapshot"];
+  billingEmail: string;
+  companyName: string;
+  vatId: string;
+  message: string | null;
+  onBillingEmailChange: (value: string) => void;
+  onCompanyNameChange: (value: string) => void;
+  onVatIdChange: (value: string) => void;
+  onSave: () => Promise<void>;
+}) {
+  const [billingPanel, setBillingPanel] = useState<"plans" | "payment" | "contact" | null>(
+    null
+  );
+
   return (
     <div className="space-y-8">
       <section>
@@ -516,30 +967,52 @@ function BillingTab() {
               Current subscription
             </p>
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground">Pro</span>
-              <Badge variant="success">Active</Badge>
+              <span className="text-sm font-semibold text-foreground">
+                {billingSnapshot.planName}
+              </span>
+              <Badge
+                variant={
+                  billingSnapshot.planStatus === "Active" ? "success" : "outline"
+                }
+              >
+                {billingSnapshot.planStatus}
+              </Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              €19 / month · Billed monthly. Renews on Apr 4, 2026.
+              {billingSnapshot.renewalDate
+                ? `Renews on ${format(new Date(billingSnapshot.renewalDate), "MMM d, yyyy")}.`
+                : "Billing renewal is not connected yet. Save your billing contact details to prepare the workspace."}
             </p>
             <div className="mt-4 grid gap-3 text-[11px] text-muted-foreground sm:grid-cols-3">
               <div>
                 <p className="text-xs text-foreground">Contracts included</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">Up to 100</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  Up to {billingSnapshot.contractsLimit}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-foreground">AI analyses / month</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">200 included</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {billingSnapshot.aiAnalysesLimit} included
+                </p>
               </div>
               <div>
                 <p className="text-xs text-foreground">Storage</p>
-                <p className="mt-1 text-sm font-semibold text-foreground">10 GB included</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {billingSnapshot.storageLimitGb} GB included
+                </p>
               </div>
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            <Button variant="primary" size="sm">Upgrade plan</Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="primary" size="sm" onClick={() => setBillingPanel("plans")}>
+              Upgrade plan
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setBillingPanel("contact")}
+            >
               Manage billing
             </Button>
           </div>
@@ -555,17 +1028,23 @@ function BillingTab() {
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-[var(--radius)] border border-border bg-card px-4 py-3">
             <p className="text-[11px] text-muted-foreground">Contracts analyzed</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">34</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">of 100 included</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{contractCount}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              of {billingSnapshot.contractsLimit} included
+            </p>
           </div>
           <div className="rounded-[var(--radius)] border border-border bg-card px-4 py-3">
             <p className="text-[11px] text-muted-foreground">AI analysis used</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">84</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">
+              {billingSnapshot.aiAnalysesUsed}
+            </p>
             <p className="mt-1 text-[11px] text-muted-foreground">Standard AI precision and rate limits</p>
           </div>
           <div className="rounded-[var(--radius)] border border-border bg-card px-4 py-3">
             <p className="text-[11px] text-muted-foreground">Storage used</p>
-            <p className="mt-1 text-lg font-semibold text-foreground">3.4 GB</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">
+              {billingSnapshot.storageUsedGb} GB
+            </p>
             <p className="mt-1 text-[11px] text-muted-foreground">Legal docs and attachments</p>
           </div>
         </div>
@@ -579,9 +1058,11 @@ function BillingTab() {
         </p>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11px] text-muted-foreground">
-            No payment method added yet.
+            Payment methods are not connected in-app yet. Save your billing contact so finance knows where to continue setup.
           </p>
-          <Button variant="primary" size="sm">Add payment method</Button>
+          <Button variant="primary" size="sm" onClick={() => setBillingPanel("payment")}>
+            Add payment method
+          </Button>
         </div>
       </section>
 
@@ -594,21 +1075,37 @@ function BillingTab() {
         <div className="mt-4 grid gap-4 text-[11px] text-muted-foreground sm:grid-cols-3">
           <div>
             <p className="text-xs text-foreground">Billing email</p>
-            <p className="mt-1 text-xs text-muted-foreground">tanzdev@example.com</p>
+            <Input
+              className="mt-2"
+              value={billingEmail}
+              onChange={(event) => onBillingEmailChange(event.target.value)}
+              placeholder="billing@company.com"
+            />
           </div>
           <div>
             <p className="text-xs text-foreground">Company</p>
-            <p className="mt-1 text-xs text-muted-foreground">Not added</p>
+            <Input
+              className="mt-2"
+              value={companyName}
+              onChange={(event) => onCompanyNameChange(event.target.value)}
+              placeholder="Legal entity name"
+            />
           </div>
           <div>
             <p className="text-xs text-foreground">VAT ID</p>
-            <p className="mt-1 text-xs text-muted-foreground">Not added</p>
+            <Input
+              className="mt-2"
+              value={vatId}
+              onChange={(event) => onVatIdChange(event.target.value)}
+              placeholder="Optional VAT or tax ID"
+            />
           </div>
         </div>
-        <div className="mt-4">
-          <Button variant="secondary" size="sm">
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={onSave}>
             Update billing info
           </Button>
+          {message && <span className="text-[11px] text-muted-foreground">{message}</span>}
         </div>
       </section>
 
@@ -616,49 +1113,59 @@ function BillingTab() {
       <section className="rounded-[var(--radius)] border border-border bg-muted/10 p-4">
         <p className="text-xs font-semibold text-foreground">Invoices &amp; billing history</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Your invoices and payment receipts will appear here once billing is active.
+          Download invoices here once a billing system or external portal is connected to this workspace.
         </p>
-        <div className="mt-4 overflow-hidden rounded-[var(--radius)] border border-border">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-muted">
-              <tr>
-                <th className="px-4 py-3 font-medium text-foreground">Date</th>
-                <th className="px-4 py-3 font-medium text-foreground">Description</th>
-                <th className="px-4 py-3 font-medium text-foreground">Amount</th>
-                <th className="px-4 py-3 font-medium text-foreground">Status</th>
-                <th className="px-4 py-3 font-medium text-foreground">Invoice</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              <tr className="bg-card">
-                <td className="px-4 py-3 text-muted-foreground">Mar 4, 2026</td>
-                <td className="px-4 py-3 text-foreground">Pro Monthly Plan</td>
-                <td className="px-4 py-3 text-foreground">€19.00</td>
-                <td className="px-4 py-3">
-                  <Badge variant="success">Paid</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
-                    Download
-                  </Button>
-                </td>
-              </tr>
-              <tr className="bg-card">
-                <td className="px-4 py-3 text-muted-foreground">Feb 4, 2026</td>
-                <td className="px-4 py-3 text-foreground">Pro Monthly Plan</td>
-                <td className="px-4 py-3 text-foreground">€19.00</td>
-                <td className="px-4 py-3">
-                  <Badge variant="success">Paid</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <Button variant="secondary" size="sm">
-                    Download
-                  </Button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        {billingSnapshot.invoices.length > 0 ? (
+          <div className="mt-4 overflow-hidden rounded-[var(--radius)] border border-border">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-muted">
+                <tr>
+                  <th className="px-4 py-3 font-medium text-foreground">Date</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Description</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Amount</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Status</th>
+                  <th className="px-4 py-3 font-medium text-foreground">Invoice</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {billingSnapshot.invoices.map((invoice) => (
+                  <tr key={invoice.id} className="bg-card">
+                    <td className="px-4 py-3 text-muted-foreground">{invoice.date}</td>
+                    <td className="px-4 py-3 text-foreground">{invoice.description}</td>
+                    <td className="px-4 py-3 text-foreground">{invoice.amount}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant={invoice.status === "Paid" ? "success" : "outline"}>
+                        {invoice.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          createDownload(
+                            `${invoice.id}.txt`,
+                            `${invoice.description}\n${invoice.amount}\n${invoice.date}`,
+                            "text/plain;charset=utf-8"
+                          )
+                        }
+                      >
+                        Download
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[var(--radius)] border border-dashed border-border bg-card px-4 py-6 text-center">
+            <p className="text-sm font-medium text-foreground">No invoices available yet</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Save your billing contact details first, then connect billing manually when you are ready to generate invoices.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Need more capacity */}
@@ -673,18 +1180,50 @@ function BillingTab() {
           <li>Priority support for enterprise contracts.</li>
         </ul>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button variant="primary" size="sm">View plans</Button>
-          <Button variant="secondary" size="sm">
+          <Button variant="primary" size="sm" onClick={() => setBillingPanel("plans")}>
+            View plans
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setBillingPanel("contact")}>
             Contact sales
           </Button>
         </div>
       </section>
+      {billingPanel && (
+        <section className="rounded-[var(--radius)] border border-border bg-card p-4">
+          <p className="text-xs font-semibold text-foreground">
+            {billingPanel === "plans"
+              ? "Plan options"
+              : billingPanel === "payment"
+              ? "Payment method guidance"
+              : "Manual billing support"}
+          </p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {billingPanel === "plans"
+              ? "Billing plan changes are not automated in-app yet. Use this panel as the current placeholder and coordinate plan changes after manual setup."
+              : billingPanel === "payment"
+              ? "Self-serve payment method setup is still a TODO. Save your billing contact above so the right team can continue configuration."
+              : "Use the saved billing email and company details in this tab as the source of truth until a live billing portal is connected."}
+          </p>
+        </section>
+      )}
     </div>
   );
 }
 
-// --- Danger Zone ---
-function DangerZoneTab() {
+function DangerZoneTab({
+  contractCount,
+  message,
+  onDeleteAllContracts,
+}: {
+  contractCount: number;
+  message: string | null;
+  onDeleteAllContracts: () => Promise<void>;
+}) {
+  const [activeAction, setActiveAction] = useState<"workspace" | "account" | "contracts" | null>(
+    null
+  );
+  const [confirmation, setConfirmation] = useState("");
+
   return (
     <div className="space-y-6">
       <div>
@@ -698,18 +1237,74 @@ function DangerZoneTab() {
           title="Delete workspace"
           desc="Remove this workspace and all configuration. Contracts and billing data remain available to the account owner."
           action="Delete"
+          onClick={() => setActiveAction("workspace")}
         />
         <DangerRow
           title="Delete account"
           desc="Permanently delete your account and all associated data."
           action="Delete"
+          onClick={() => setActiveAction("account")}
         />
         <DangerRow
           title="Remove all contract data"
           desc="Delete all uploaded contracts and analysis from this workspace."
           action="Delete"
+          onClick={() => setActiveAction("contracts")}
         />
       </div>
+      {activeAction && (
+        <section className="rounded-[var(--radius)] border border-border bg-card p-4">
+          <p className="text-xs font-semibold text-foreground">
+            {activeAction === "contracts"
+              ? "Confirm contract data removal"
+              : activeAction === "workspace"
+              ? "Workspace deletion placeholder"
+              : "Account deletion placeholder"}
+          </p>
+          {activeAction === "contracts" ? (
+            <>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Type <strong>DELETE CONTRACTS</strong> to remove {contractCount} contract
+                {contractCount === 1 ? "" : "s"} and related activity from this workspace.
+              </p>
+              <Input
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                className="mt-3 max-w-sm"
+                placeholder="DELETE CONTRACTS"
+              />
+              <div className="mt-3 flex gap-2">
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={confirmation !== "DELETE CONTRACTS"}
+                  onClick={async () => {
+                    await onDeleteAllContracts();
+                    setConfirmation("");
+                  }}
+                >
+                  Confirm deletion
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setActiveAction(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 space-y-3 text-[11px] text-muted-foreground">
+              <p>
+                TODO: this flow needs a server-side cleanup path before it can safely delete the
+                workspace or the authenticated account. The button now opens the correct panel with
+                the next implementation note instead of doing nothing.
+              </p>
+              <Button variant="secondary" size="sm" onClick={() => setActiveAction(null)}>
+                Close panel
+              </Button>
+            </div>
+          )}
+        </section>
+      )}
+      {message && <p className="text-[11px] text-muted-foreground">{message}</p>}
     </div>
   );
 }
@@ -718,10 +1313,12 @@ function DangerRow({
   title,
   desc,
   action,
+  onClick,
 }: {
   title: string;
   desc: string;
   action: string;
+  onClick: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -729,7 +1326,7 @@ function DangerRow({
         <p className="text-xs font-medium text-foreground">{title}</p>
         <p className="text-[11px] text-muted-foreground">{desc}</p>
       </div>
-      <Button variant="danger" size="sm">
+      <Button variant="danger" size="sm" onClick={onClick}>
         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
         {action}
       </Button>

@@ -1,6 +1,5 @@
-import { contracts } from "@/data/contracts";
-import { notFound } from "next/navigation";
-import { ContractDetailPage } from "@/components/contracts/contract-detail-page";
+import { RequireAuth } from "@/components/auth/require-auth";
+import { ContractDetailRoute } from "@/components/contracts/contract-detail-page";
 
 interface ContractDetailProps {
   params: Promise<{ id: string }>;
@@ -8,12 +7,10 @@ interface ContractDetailProps {
 
 export default async function ContractDetail({ params }: ContractDetailProps) {
   const { id } = await params;
-  const contract = contracts.find((c) => c.id === id);
-
-  if (!contract) {
-    notFound();
-  }
-
-  return <ContractDetailPage contract={contract} />;
+  return (
+    <RequireAuth>
+      <ContractDetailRoute contractId={id} />
+    </RequireAuth>
+  );
 }
 

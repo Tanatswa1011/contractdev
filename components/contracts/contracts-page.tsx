@@ -1,143 +1,201 @@
 "use client";
 
-import { contracts as baseContracts } from "@/data/contracts";
-import { Contract } from "@/types/contract";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, ChevronDown, ExternalLink, Filter, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ExternalLink, Filter, UploadCloud } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-
-type ExtendedContract = Contract & {
-  contractType: string;
-  owner: string;
-};
-
-const OWNER_MAP: Record<string, string> = {
-  aws: "Infrastructure",
-  slack: "People Ops",
-  m365: "IT",
-  "office-lease": "Operations",
-  hubspot: "Growth",
-  notion: "Product",
-  payroll: "Finance"
-};
-
-const TYPE_MAP: Record<string, string> = {
-  aws: "Cloud Infrastructure",
-  slack: "SaaS Subscription",
-  m365: "SaaS Subscription",
-  "office-lease": "Real Estate",
-  hubspot: "SaaS Subscription",
-  notion: "SaaS Subscription",
-  payroll: "Services Agreement"
-};
+import { useAppData } from "@/components/app/app-data-provider";
+import { exportContractsCsv } from "@/lib/app-data";
+import { Contract } from "@/types/contract";
 
 const PAGE_SIZE = 25;
-
 const quickFilters = ["All", "Active", "Expiring soon", "High risk"] as const;
-type QuickFilter = (typeof quickFilters)[number];
+const sortOptions = ["next-deadline", "risk-score", "name"] as const;
 
-function extendContracts(): ExtendedContract[] {
-  return baseContracts.map((c) => ({
-    ...c,
-    contractType: TYPE_MAP[c.id] ?? "SaaS Subscription",
-    owner: OWNER_MAP[c.id] ?? "Legal"
-  }));
-}
+type QuickFilter = (typeof quickFilters)[number];
+type SortOption = (typeof sortOptions)[number];
 
 export function ContractsPage() {
+  const router = useRouter();
+  const {
+    contracts,
+    isReady,
+    createReminder,
+    assignOwner,
+    archiveContracts,
+    createContract,
+  } = useAppData();
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("All");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>("next-deadline");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [showUploadPanel, setShowUploadPanel] = useState(false);
+  const [showAssignOwner, setShowAssignOwner] = useState(false);
+  const [bulkOwner, setBulkOwner] = useState("");
 
-  const contracts = useMemo(() => extendContracts(), []);
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const next = new Set(
+        [...current].filter((id) => contracts.some((contract) => contract.id === id))
+      );
+      return next;
+    });
+
+    if (!previewId && contracts[0]) {
+      setPreviewId(contracts[0].id);
+    }
+
+    if (previewId && !contracts.some((contract) => contract.id === previewId)) {
+      setPreviewId(contracts[0]?.id ?? null);
+    }
+  }, [contracts, previewId]);
+
+  const ownerOptions = useMemo(
+    () => Array.from(new Set(contracts.map((contract) => contract.owner))).sort(),
+    [contracts]
+  );
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return contracts.filter((c) => {
-      if (q) {
-        if (
-          !(
-            c.name.toLowerCase().includes(q) ||
-            c.vendor.toLowerCase().includes(q)
-          )
-        ) {
-          return false;
-        }
+    const q = search.toLowerCase().trim();
+    const filteredContracts = contracts.filter((contract) => {
+      if (
+        q &&
+        !(
+          contract.name.toLowerCase().includes(q) ||
+          contract.vendor.toLowerCase().includes(q) ||
+          contract.contractType.toLowerCase().includes(q) ||
+          contract.owner.toLowerCase().includes(q)
+        )
+      ) {
+        return false;
       }
 
-      if (quickFilter === "Active" && c.status !== "active") return false;
-      if (quickFilter === "High risk" && c.riskLevel !== "high") return false;
+      if (quickFilter === "Active" && contract.status !== "active") return false;
+      if (quickFilter === "High risk" && contract.riskLevel !== "high") return false;
       if (quickFilter === "Expiring soon") {
-        if (!c.renewalDate) return false;
+        if (!contract.renewalDate) return false;
         const days =
-          (new Date(c.renewalDate).getTime() - Date.now()) /
+          (new Date(contract.renewalDate).getTime() - Date.now()) /
           (1000 * 60 * 60 * 24);
         if (days > 60) return false;
       }
 
+      if (statusFilter !== "all" && contract.status !== statusFilter) return false;
+      if (riskFilter !== "all" && contract.riskLevel !== riskFilter) return false;
+      if (ownerFilter !== "all" && contract.owner !== ownerFilter) return false;
+
       return true;
     });
-  }, [contracts, search, quickFilter]);
+
+    return filteredContracts.sort((left, right) => {
+      if (sortBy === "name") {
+        return left.name.localeCompare(right.name);
+      }
+
+      if (sortBy === "risk-score") {
+        return right.riskScore - left.riskScore;
+      }
+
+      return (
+        new Date(left.nextDeadline).getTime() - new Date(right.nextDeadline).getTime()
+      );
+    });
+  }, [contracts, ownerFilter, quickFilter, riskFilter, search, sortBy, statusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, quickFilter, statusFilter, riskFilter, ownerFilter, sortBy]);
 
   const total = filtered.length;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, maxPage);
   const start = (safePage - 1) * PAGE_SIZE;
   const pageContracts = filtered.slice(start, start + PAGE_SIZE);
-
+  const selectedContracts = contracts.filter((contract) => selectedIds.has(contract.id));
   const allPageSelected =
     pageContracts.length > 0 &&
-    pageContracts.every((c) => selectedIds.has(c.id));
+    pageContracts.every((contract) => selectedIds.has(contract.id));
+
+  const cycleSort = () => {
+    setSortBy((current) => {
+      const currentIndex = sortOptions.indexOf(current);
+      return sortOptions[(currentIndex + 1) % sortOptions.length];
+    });
+  };
 
   const toggleSelectAllPage = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    setSelectedIds((current) => {
+      const next = new Set(current);
       if (allPageSelected) {
-        pageContracts.forEach((c) => next.delete(c.id));
+        pageContracts.forEach((contract) => next.delete(contract.id));
       } else {
-        pageContracts.forEach((c) => next.add(c.id));
+        pageContracts.forEach((contract) => next.add(contract.id));
       }
       return next;
     });
   };
 
   const toggleRowSelection = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
 
-  const handleRowClick = (id: string) => {
-    setPreviewId(id);
+  const handleBulkReminder = async () => {
+    if (selectedIds.size === 0) return;
+    await createReminder([...selectedIds]);
   };
 
-  const selectedContracts = contracts.filter((c) =>
-    selectedIds.has(c.id)
-  );
+  const handleAssignOwner = async () => {
+    if (!bulkOwner.trim()) return;
+    await assignOwner([...selectedIds], bulkOwner.trim());
+    setBulkOwner("");
+    setShowAssignOwner(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleArchiveSelected = async () => {
+    if (selectedIds.size === 0) return;
+    await archiveContracts([...selectedIds]);
+    setSelectedIds(new Set());
+  };
+
+  if (!isReady) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center px-6 py-10">
+        <p className="text-sm text-muted-foreground">Loading contracts…</p>
+      </main>
+    );
+  }
+
+  const hasAnyContracts = contracts.length > 0;
 
   return (
     <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
-        {/* Header */}
         <section className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-primary">
-              Contracts
-            </h1>
+            <h1 className="text-xl font-semibold text-primary">Contracts</h1>
             <p className="mt-1 text-sm text-muted">
-              Manage and monitor all agreements across your portfolio.
+              Manage uploads, reminders, owners, and active agreements across your portfolio.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -145,20 +203,14 @@ export function ContractsPage() {
               <Input
                 placeholder="Search contracts..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
                 className="h-9 w-full min-w-[200px] rounded-xl border-border bg-card text-sm text-secondary"
               />
-              <Button
-                variant="ghost"
-                size="sm"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setShowFilters((value) => !value)}>
                 <Filter className="mr-1.5 h-3.5 w-3.5" />
                 Filters
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-              >
+              <Button variant="ghost" size="sm" onClick={cycleSort}>
                 Sort
                 <ChevronDown className="ml-1.5 h-3 w-3" />
               </Button>
@@ -167,13 +219,76 @@ export function ContractsPage() {
               size="sm"
               variant="primary"
               className="h-9 rounded-full text-xs font-medium"
+              onClick={() => setShowUploadPanel((value) => !value)}
             >
               Upload Contract
             </Button>
           </div>
         </section>
 
-        {/* Filter bar */}
+        {showUploadPanel && (
+          <UploadContractPanel
+            onClose={() => setShowUploadPanel(false)}
+            onCreated={(contractSlug) => router.push(`/contracts/${contractSlug}`)}
+            createContract={createContract}
+          />
+        )}
+
+        {showFilters && (
+          <Card className="border border-border bg-card">
+            <CardContent className="grid gap-3 py-4 md:grid-cols-3">
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+                  Status
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="mt-1 h-9 w-full rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="pending">Pending</option>
+                  <option value="draft">Draft</option>
+                  <option value="expired">Expired</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+                  Risk
+                </label>
+                <select
+                  value={riskFilter}
+                  onChange={(event) => setRiskFilter(event.target.value)}
+                  className="mt-1 h-9 w-full rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+                >
+                  <option value="all">All risk levels</option>
+                  <option value="low">Low risk</option>
+                  <option value="medium">Medium risk</option>
+                  <option value="high">High risk</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+                  Owner
+                </label>
+                <select
+                  value={ownerFilter}
+                  onChange={(event) => setOwnerFilter(event.target.value)}
+                  className="mt-1 h-9 w-full rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+                >
+                  <option value="all">All owners</option>
+                  {ownerOptions.map((owner) => (
+                    <option key={owner} value={owner}>
+                      {owner}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <section className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             {quickFilters.map((label) => (
@@ -188,59 +303,73 @@ export function ContractsPage() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">
-            <span>Status</span>
+            <span>Sorted by {sortBy.replace("-", " ")}</span>
             <span>•</span>
-            <span>Risk level</span>
-            <span>•</span>
-            <span>Vendor</span>
-            <span>•</span>
-            <span>Type</span>
-            <span>•</span>
-            <span>Renewal window</span>
-            <span>•</span>
-            <span>Owner</span>
+            <span>{total} matching contract{total === 1 ? "" : "s"}</span>
           </div>
         </section>
 
-        {/* Bulk actions */}
         {selectedIds.size > 0 && (
           <section>
             <Card className="border border-border bg-muted">
-              <CardContent className="flex items-center justify-between gap-3 py-2.5 px-4">
-                <div className="text-[11px] text-secondary">
-                  {selectedIds.size} contract
-                  {selectedIds.size > 1 ? "s" : ""} selected
+              <CardContent className="flex flex-col gap-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-[11px] text-secondary">
+                    {selectedIds.size} contract{selectedIds.size > 1 ? "s" : ""} selected
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="h-7 rounded-full text-[11px]"
+                      onClick={handleBulkReminder}
+                    >
+                      Send renewal reminders
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 rounded-full text-[11px]"
+                      onClick={() => exportContractsCsv(selectedContracts)}
+                    >
+                      Export
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-full text-[11px]"
+                      onClick={() => setShowAssignOwner((value) => !value)}
+                    >
+                      Assign owner
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-full text-[11px]"
+                      onClick={handleArchiveSelected}
+                    >
+                      Archive
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="h-7 rounded-full text-[11px]"
-                  >
-                    Send renewal reminders
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="h-7 rounded-full text-[11px]"
-                  >
-                    Export
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 rounded-full text-[11px]"
-                  >
-                    Assign owner
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 rounded-full text-[11px]"
-                  >
-                    Archive
-                  </Button>
-                </div>
+                {showAssignOwner && (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Input
+                      value={bulkOwner}
+                      onChange={(event) => setBulkOwner(event.target.value)}
+                      placeholder="Assign to owner or team"
+                      className="h-8 max-w-sm bg-card"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-8"
+                      onClick={handleAssignOwner}
+                      disabled={!bulkOwner.trim()}
+                    >
+                      Save owner
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </section>
@@ -248,73 +377,110 @@ export function ContractsPage() {
 
         <section className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
           <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <Card className="border border-border bg-card">
-              <CardContent className="px-5 pb-4 pt-3">
-                <ContractsTable
-                  contracts={pageContracts}
-                  allPageSelected={allPageSelected}
-                  onToggleAll={toggleSelectAllPage}
-                  onRowToggle={toggleRowSelection}
-                  onRowClick={handleRowClick}
-                  selectedIds={selectedIds}
-                />
-              </CardContent>
-            </Card>
+            {total > 0 ? (
+              <Card className="border border-border bg-card">
+                <CardContent className="px-5 pb-4 pt-3">
+                  <ContractsTable
+                    contracts={pageContracts}
+                    allPageSelected={allPageSelected}
+                    onToggleAll={toggleSelectAllPage}
+                    onRowToggle={toggleRowSelection}
+                    onRowClick={setPreviewId}
+                    selectedIds={selectedIds}
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border border-border bg-card">
+                <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                  <h2 className="text-sm font-semibold text-primary">
+                    {hasAnyContracts ? "No contracts match these filters" : "No contracts yet"}
+                  </h2>
+                  <p className="max-w-sm text-[11px] text-muted">
+                    {hasAnyContracts
+                      ? "Try broadening your search, switching the quick filter, or clearing the advanced filters to find the right contract."
+                      : "Upload your first contract to start monitoring risk, renewals, and key obligations across your portfolio."}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {hasAnyContracts ? (
+                      <Button
+                        variant="secondary"
+                        className="mt-1 rounded-full px-4 text-xs font-medium"
+                        onClick={() => {
+                          setSearch("");
+                          setQuickFilter("All");
+                          setStatusFilter("all");
+                          setRiskFilter("all");
+                          setOwnerFilter("all");
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        className="mt-1 rounded-full px-4 text-xs font-medium"
+                        onClick={() => setShowUploadPanel(true)}
+                      >
+                        Upload Contract
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between text-[11px] text-muted mt-1">
-              <span>
-                Showing {total === 0 ? 0 : start + 1}–
-                {Math.min(start + PAGE_SIZE, total)} of {total} contracts
-              </span>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 rounded-full px-3 text-[11px]"
-                  disabled={safePage === 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                {Array.from({ length: maxPage }).map((_, i) => {
-                  const pageNum = i + 1;
-                  return (
-                    <button
-                      key={pageNum}
-                      className={cn(
-                        "h-7 w-7 rounded-full text-[11px]",
-                        pageNum === safePage
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted hover:bg-muted"
-                      )}
-                      onClick={() => setPage(pageNum)}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 rounded-full px-3 text-[11px]"
-                  disabled={safePage === maxPage}
-                  onClick={() =>
-                    setPage((p) => Math.min(maxPage, p + 1))
-                  }
-                >
-                  Next
-                </Button>
+            {total > 0 && (
+              <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+                <span>
+                  Showing {start + 1}–{Math.min(start + PAGE_SIZE, total)} of {total} contracts
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 rounded-full px-3 text-[11px]"
+                    disabled={safePage === 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  >
+                    Previous
+                  </Button>
+                  {Array.from({ length: maxPage }).map((_, index) => {
+                    const pageNum = index + 1;
+                    return (
+                      <button
+                        key={pageNum}
+                        className={cn(
+                          "h-7 w-7 rounded-full text-[11px]",
+                          pageNum === safePage
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted hover:bg-muted"
+                        )}
+                        onClick={() => setPage(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 rounded-full px-3 text-[11px]"
+                    disabled={safePage === maxPage}
+                    onClick={() => setPage((current) => Math.min(maxPage, current + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Right-side preview */}
           <aside className="mt-2 w-full shrink-0 lg:mt-0 lg:w-[320px] xl:w-[360px]">
             {previewId ? (
               <ContractPreview
                 contract={
-                  contracts.find((c) => c.id === previewId) ??
+                  contracts.find((contract) => contract.id === previewId) ??
                   pageContracts[0] ??
                   null
                 }
@@ -326,46 +492,25 @@ export function ContractsPage() {
                     Select a contract to preview
                   </p>
                   <p className="mt-1 text-[11px] text-muted">
-                    Click any row to see key details, risk, and AI summary
-                    without leaving this page.
+                    Click any row to review ownership, current file status, and the AI-generated summary.
                   </p>
                 </CardContent>
               </Card>
             )}
           </aside>
         </section>
-
-        {/* Empty state */}
-        {total === 0 && (
-          <section>
-            <Card className="border border-border bg-card">
-              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-                <h2 className="text-sm font-semibold text-primary">
-                  No contracts yet
-                </h2>
-                <p className="max-w-sm text-[11px] text-muted">
-                  Upload your first contract to start monitoring risk,
-                  renewals, and key obligations across your portfolio.
-                </p>
-                <Button variant="primary" className="mt-1 rounded-full px-4 text-xs font-medium">
-                  Upload Contract
-                </Button>
-              </CardContent>
-            </Card>
-          </section>
-        )}
       </div>
     </main>
   );
 }
 
 interface ContractsTableProps {
-  contracts: ExtendedContract[];
+  contracts: Contract[];
   selectedIds: Set<string>;
   allPageSelected: boolean;
   onToggleAll: () => void;
   onRowToggle: (id: string) => void;
-  onRowClick: (id: string) => void;
+  onRowClick: (id: string | null) => void;
 }
 
 function ContractsTable({
@@ -461,7 +606,7 @@ function ContractsTable({
                   className="rounded-full px-3 text-[11px]"
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/contracts/${contract.id}`);
+                    router.push(`/contracts/${contract.slug}`);
                   }}
                 >
                   <ExternalLink className="mr-1 h-3 w-3" />
@@ -520,7 +665,7 @@ function RiskLabel({ level }: { level: Contract["riskLevel"] }) {
   );
 }
 
-function ContractPreview({ contract }: { contract: ExtendedContract | null }) {
+function ContractPreview({ contract }: { contract: Contract | null }) {
   if (!contract) return null;
 
   const renewalLabel = contract.renewalDate
@@ -545,7 +690,7 @@ function ContractPreview({ contract }: { contract: ExtendedContract | null }) {
             className="h-7 shrink-0 rounded-full px-2.5 text-[11px]"
             asChild
           >
-            <Link href={`/contracts/${contract.id}`}>
+            <Link href={`/contracts/${contract.slug}`}>
               <ExternalLink className="mr-1 h-3 w-3" />
               View page
             </Link>
@@ -574,6 +719,10 @@ function ContractPreview({ contract }: { contract: ExtendedContract | null }) {
             <span className="text-muted">Owner</span>
             <span>{contract.owner}</span>
           </div>
+          <div className="flex items-center justify-between text-[11px] text-secondary">
+            <span className="text-muted">Current file</span>
+            <span>{contract.currentFile?.filename ?? "No file uploaded yet"}</span>
+          </div>
         </div>
         <div>
           <p className="text-[11px] font-medium text-secondary">
@@ -600,6 +749,236 @@ function ContractPreview({ contract }: { contract: ExtendedContract | null }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function UploadContractPanel({
+  onClose,
+  onCreated,
+  createContract,
+}: {
+  onClose: () => void;
+  onCreated: (contractSlug: string) => void;
+  createContract: ReturnType<typeof useAppData>["createContract"];
+}) {
+  const [name, setName] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [contractType, setContractType] = useState("SaaS Subscription");
+  const [owner, setOwner] = useState("Legal");
+  const [contractValue, setContractValue] = useState("12000");
+  const [valuePeriod, setValuePeriod] = useState<Contract["valuePeriod"]>("year");
+  const [renewalType, setRenewalType] =
+    useState<Contract["renewalType"]>("auto-renewal");
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [renewalDate, setRenewalDate] = useState("");
+  const [nextDeadline, setNextDeadline] = useState(new Date().toISOString().slice(0, 10));
+  const [noticePeriodDays, setNoticePeriodDays] = useState("30");
+  const [summary, setSummary] = useState("");
+  const [clauses, setClauses] = useState("Renewal, Termination");
+  const [file, setFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    setError(null);
+
+    if (!name.trim() || !vendor.trim()) {
+      setError("Enter both the contract name and vendor.");
+      return;
+    }
+
+    if (!nextDeadline) {
+      setError("Choose the next deadline so reminders can be scheduled.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const createdContract = await createContract({
+        name: name.trim(),
+        vendor: vendor.trim(),
+        contractType: contractType.trim(),
+        owner: owner.trim() || "Legal",
+        contractValue: Number(contractValue) || 0,
+        valuePeriod,
+        renewalType,
+        startDate,
+        renewalDate: renewalDate || null,
+        nextDeadline,
+        noticePeriodDays: Number(noticePeriodDays) || 30,
+        summary: summary.trim(),
+        clauses: clauses
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        file,
+      });
+      onClose();
+      onCreated(createdContract.slug);
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "The contract could not be uploaded."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Card className="border border-border bg-card">
+      <CardHeader className="flex-col items-start gap-2 pb-2">
+        <CardTitle className="text-sm font-semibold text-foreground">
+          Upload contract
+        </CardTitle>
+        <p className="text-[11px] text-muted">
+          Add the key metadata now so the contract appears in the dashboard, reminder flows, and detail view immediately.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-2">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Contract name">
+            <Input value={name} onChange={(event) => setName(event.target.value)} />
+          </Field>
+          <Field label="Vendor">
+            <Input value={vendor} onChange={(event) => setVendor(event.target.value)} />
+          </Field>
+          <Field label="Type">
+            <Input
+              value={contractType}
+              onChange={(event) => setContractType(event.target.value)}
+            />
+          </Field>
+          <Field label="Owner">
+            <Input value={owner} onChange={(event) => setOwner(event.target.value)} />
+          </Field>
+          <Field label="Contract value">
+            <Input
+              type="number"
+              value={contractValue}
+              onChange={(event) => setContractValue(event.target.value)}
+            />
+          </Field>
+          <Field label="Value period">
+            <select
+              value={valuePeriod}
+              onChange={(event) =>
+                setValuePeriod(event.target.value as Contract["valuePeriod"])
+              }
+              className="h-9 w-full rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+            >
+              <option value="month">Per month</option>
+              <option value="year">Per year</option>
+              <option value="total">Total</option>
+            </select>
+          </Field>
+          <Field label="Renewal type">
+            <select
+              value={renewalType}
+              onChange={(event) =>
+                setRenewalType(event.target.value as Contract["renewalType"])
+              }
+              className="h-9 w-full rounded-full border border-border bg-secondary px-3 text-xs text-foreground"
+            >
+              <option value="auto-renewal">Auto-renewal</option>
+              <option value="manual-renewal">Manual renewal</option>
+              <option value="evergreen">Evergreen</option>
+              <option value="fixed-term">Fixed term</option>
+            </select>
+          </Field>
+          <Field label="Start date">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+            />
+          </Field>
+          <Field label="Renewal date">
+            <Input
+              type="date"
+              value={renewalDate}
+              onChange={(event) => setRenewalDate(event.target.value)}
+            />
+          </Field>
+          <Field label="Next deadline">
+            <Input
+              type="date"
+              value={nextDeadline}
+              onChange={(event) => setNextDeadline(event.target.value)}
+            />
+          </Field>
+          <Field label="Notice period (days)">
+            <Input
+              type="number"
+              value={noticePeriodDays}
+              onChange={(event) => setNoticePeriodDays(event.target.value)}
+            />
+          </Field>
+          <Field label="Contract file">
+            <label className="flex h-9 cursor-pointer items-center justify-between rounded-full border border-border bg-secondary px-3 text-xs text-foreground">
+              <span className="truncate">
+                {file?.name ?? "Choose PDF or document"}
+              </span>
+              <UploadCloud className="ml-2 h-3.5 w-3.5 shrink-0" />
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt"
+                className="hidden"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+          </Field>
+        </div>
+        <Field label="Summary">
+          <textarea
+            value={summary}
+            onChange={(event) => setSummary(event.target.value)}
+            rows={3}
+            className="w-full rounded-2xl border border-border bg-secondary px-3 py-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            placeholder="Short description of the contract scope and business purpose."
+          />
+        </Field>
+        <Field label="Tracked clauses">
+          <Input
+            value={clauses}
+            onChange={(event) => setClauses(event.target.value)}
+            placeholder="Renewal, Termination, Liability"
+          />
+        </Field>
+        {error && (
+          <div className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-[11px] text-danger">
+            {error}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? "Saving contract…" : "Save contract"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
+        {label}
+      </label>
+      <div className="mt-1">{children}</div>
+    </div>
   );
 }
 

@@ -1,10 +1,11 @@
-import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { PublicOnly } from "@/components/auth/public-only";
+import { LandingPage } from "@/components/public/landing-page";
 
 export default function Page() {
   return (
-    <main className="px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
-      <DashboardShell />
-    </main>
+    <PublicOnly>
+      <LandingPage />
+    </PublicOnly>
   );
 }
 

@@ -1,7 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { contracts } from "@/data/contracts";
+import { useAppData } from "@/components/app/app-data-provider";
 
 export function RiskOverviewCard() {
+  const { contracts } = useAppData();
+  if (contracts.length === 0) {
+    return null;
+  }
+
   const portfolioScore =
     contracts.reduce((acc, c) => acc + c.riskScore, 0) / contracts.length;
 

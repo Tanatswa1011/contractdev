@@ -4,20 +4,35 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { immediateAttentionContract } from "@/data/contracts";
 import { AlertTriangle, BellRing, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
+import { useAppData } from "@/components/app/app-data-provider";
 
 export function ImmediateAttentionCard() {
-  const [reminderSent, setReminderSent] = useState(false);
-  const c = immediateAttentionContract;
+  const { contracts, createReminder } = useAppData();
+  const [isSending, setIsSending] = useState(false);
+  const c = [...contracts]
+    .filter((contract) => contract.status === "active")
+    .sort((a, b) => {
+      if (b.riskScore !== a.riskScore) {
+        return b.riskScore - a.riskScore;
+      }
+
+      return (
+        new Date(a.nextDeadline).getTime() - new Date(b.nextDeadline).getTime()
+      );
+    })[0];
   if (!c) return null;
 
   const deadlineLabel = format(new Date(c.nextDeadline), "MMM d, yyyy");
 
-  const handleSendReminder = () => {
-    setReminderSent(true);
-    setTimeout(() => setReminderSent(false), 3000);
+  const handleSendReminder = async () => {
+    setIsSending(true);
+    try {
+      await createReminder([c.id]);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -70,7 +85,7 @@ export function ImmediateAttentionCard() {
               className="group flex w-full items-center justify-between rounded-full"
               asChild
             >
-              <Link href={`/contracts/${c.id}`}>
+              <Link href={`/contracts/${c.slug}`}>
                 <span className="flex items-center gap-1.5 text-xs font-medium">
                   <ExternalLink className="h-3.5 w-3.5" />
                   View contract
@@ -85,11 +100,11 @@ export function ImmediateAttentionCard() {
               variant="outline"
               className="flex w-full items-center justify-between rounded-full border-border bg-secondary text-foreground hover:border-foreground/40 hover:bg-muted"
               onClick={handleSendReminder}
-              disabled={reminderSent}
+              disabled={isSending}
             >
               <span className="flex items-center gap-1.5 text-[11px]">
                 <BellRing className="h-3.5 w-3.5" />
-                {reminderSent ? "Sent!" : "Send renewal reminder"}
+                {isSending ? "Scheduling…" : "Send renewal reminder"}
               </span>
               <span className="text-[10px] text-muted-foreground">to owners</span>
             </Button>

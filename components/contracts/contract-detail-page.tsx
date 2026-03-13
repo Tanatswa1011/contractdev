@@ -1,14 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Contract } from "@/types/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ChevronRight, Download, ExternalLink, FileText, Maximize2, Minus, Plus, Shield, Timer, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  Maximize2,
+  Minus,
+  Plus,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
+import { useAppData } from "@/components/app/app-data-provider";
+import { createDownload } from "@/lib/app-data";
 
 interface ContractDetailPageProps {
   contract: Contract;
@@ -34,12 +46,18 @@ const DETECTED_ISSUES = [
 type RightTab = "insights" | "chat" | "details";
 
 export function ContractDetailPage({ contract }: ContractDetailPageProps) {
+  const { uploadContractVersion, createReminder, markContractReviewed } = useAppData();
   const [clauseSearch, setClauseSearch] = useState("");
   const [selectedClauseId, setSelectedClauseId] = useState<string | null>("termination");
   const [rightTab, setRightTab] = useState<RightTab>("insights");
   const [issueBannerVisible, setIssueBannerVisible] = useState(true);
   const [zoom, setZoom] = useState(100);
   const [currentPage, setCurrentPage] = useState(1);
+  const [chatPrompt, setChatPrompt] = useState("");
+  const [chatAnswer, setChatAnswer] = useState<string | null>(null);
+  const [detailMessage, setDetailMessage] = useState<string | null>(null);
+  const [isUploadingVersion, setIsUploadingVersion] = useState(false);
+  const versionInputRef = useRef<HTMLInputElement>(null);
   const totalPages = 12;
 
   const renewalDate = contract.renewalDate
@@ -57,6 +75,127 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const filteredClauses = CLAUSE_LABELS.filter((c) =>
     c.label.toLowerCase().includes(clauseSearch.toLowerCase())
   );
+  const issueCount = useMemo(() => {
+    let total = 0;
+    if (contract.riskLevel === "high") total += 1;
+    if (contract.noticePeriodDays >= 90) total += 1;
+    if (!contract.reviewedAt) total += 1;
+    return total || 1;
+  }, [contract.noticePeriodDays, contract.reviewedAt, contract.riskLevel]);
+
+  const handleExport = () => {
+    createDownload(
+      `${contract.slug}-summary.txt`,
+      [
+        `Contract: ${contract.name}`,
+        `Vendor: ${contract.vendor}`,
+        `Status: ${contract.status}`,
+        `Risk score: ${contract.riskScore}`,
+        `Renewal type: ${contract.renewalType}`,
+        `Renewal date: ${contract.renewalDate ?? "Not set"}`,
+        `Next deadline: ${contract.nextDeadline}`,
+        `Owner: ${contract.owner}`,
+        "",
+        "Summary",
+        contract.summary || "No summary saved yet.",
+        "",
+        "AI Summary",
+        contract.aiSummary || "No AI summary saved yet.",
+      ].join("\n"),
+      "text/plain;charset=utf-8"
+    );
+    setDetailMessage("Contract summary exported.");
+  };
+
+  const handleVersionUpload = async (file: File | null) => {
+    if (!file) return;
+
+    setIsUploadingVersion(true);
+    setDetailMessage(null);
+
+    try {
+      await uploadContractVersion(contract.id, file);
+      setDetailMessage("A new version was uploaded and marked as current.");
+    } catch (uploadError) {
+      setDetailMessage(
+        uploadError instanceof Error ? uploadError.message : "Version upload failed."
+      );
+    } finally {
+      setIsUploadingVersion(false);
+    }
+  };
+
+  const handleReminder = async () => {
+    setDetailMessage(null);
+    try {
+      await createReminder([contract.id]);
+      setDetailMessage("Renewal reminder scheduled for the contract owners.");
+    } catch (reminderError) {
+      setDetailMessage(
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Reminder could not be created."
+      );
+    }
+  };
+
+  const handleReviewToggle = async () => {
+    setDetailMessage(null);
+    try {
+      await markContractReviewed(contract.id, !contract.reviewedAt);
+      setDetailMessage(
+        contract.reviewedAt
+          ? "Review status cleared."
+          : "Contract marked as reviewed."
+      );
+    } catch (reviewError) {
+      setDetailMessage(
+        reviewError instanceof Error ? reviewError.message : "Review state could not be updated."
+      );
+    }
+  };
+
+  const handleOpenFile = () => {
+    if (contract.currentFile?.publicUrl) {
+      window.open(contract.currentFile.publicUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    setDetailMessage("Upload a contract version first to preview it in a new tab.");
+  };
+
+  const handleDownloadFile = () => {
+    if (contract.currentFile?.publicUrl) {
+      window.open(contract.currentFile.publicUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    handleExport();
+  };
+
+  const handleAsk = () => {
+    const question = chatPrompt.trim().toLowerCase();
+    if (!question) return;
+
+    let answer =
+      "This workspace answer is based on the saved summary, deadlines, and contract metadata currently attached to the record.";
+
+    if (question.includes("renew")) {
+      answer = `The contract uses ${contract.renewalType.replace("-", " ")} and the next deadline is ${nextDeadline}. The renewal date is ${renewalDate}.`;
+    } else if (question.includes("risk")) {
+      answer = `The current risk score is ${contract.riskScore}, which places the contract in the ${contract.riskLevel} risk tier.`;
+    } else if (question.includes("owner")) {
+      answer = `The current owner is ${contract.owner}. Use the contracts page bulk actions if you need to reassign it.`;
+    } else if (question.includes("file") || question.includes("version")) {
+      answer = contract.currentFile
+        ? `The current file is ${contract.currentFile.filename} and version ${contract.currentFile.versionNumber} is marked as current.`
+        : "No file has been uploaded yet. Use “Upload New Version” to attach the current document.";
+    } else if (question.includes("summary")) {
+      answer = contract.aiSummary || contract.summary || "No summary has been saved yet.";
+    }
+
+    setChatAnswer(answer);
+  };
 
   return (
     <main className="min-h-screen px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
@@ -83,26 +222,65 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
             <StatusPill status={contract.status} />
             <RiskPill level={contract.riskLevel} />
+            {contract.reviewedAt ? (
+              <span className="rounded-full bg-success/10 px-2 py-1 text-success">
+                Reviewed
+              </span>
+            ) : (
+              <span className="rounded-full bg-warning/10 px-2 py-1 text-warning">
+                Review pending
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <input
+              ref={versionInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.txt"
+              className="hidden"
+              onChange={(event) => handleVersionUpload(event.target.files?.[0] ?? null)}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={() => versionInputRef.current?.click()}
+              disabled={isUploadingVersion}
+            >
               Upload New Version
             </Button>
-            <Button variant="primary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleReminder}
+            >
               Create Reminder
             </Button>
-            <Button variant="secondary" size="sm" className="h-8 rounded-full px-3 text-[11px]">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleExport}
+            >
               Export
             </Button>
             <Button
               variant="secondary"
               size="sm"
               className="h-8 rounded-full px-3 text-[11px]"
+              onClick={handleReviewToggle}
             >
-              Mark Reviewed
+              {contract.reviewedAt ? "Clear Review" : "Mark Reviewed"}
             </Button>
           </div>
         </section>
+
+        {detailMessage && (
+          <div className="rounded-2xl border border-border bg-muted/40 px-4 py-3 text-[11px] text-foreground">
+            {detailMessage}
+          </div>
+        )}
 
         <section className="grid gap-4 lg:grid-cols-[280px,minmax(0,1fr),360px] xl:grid-cols-[300px,minmax(0,1fr),380px]">
           {/* Left: Key Clauses */}
@@ -188,16 +366,49 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                   </Button>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 rounded-full p-0"
+                    onClick={handleOpenFile}
+                  >
                     <Maximize2 className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 rounded-full p-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 rounded-full p-0"
+                    onClick={handleDownloadFile}
+                  >
                     <Download className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
-              <div className="min-h-[420px] flex-1 rounded-lg border border-dashed border-border bg-muted/20 flex items-center justify-center">
-                <p className="text-[11px] text-muted-foreground">Document preview area</p>
+              <div className="min-h-[420px] flex-1 overflow-hidden rounded-lg border border-dashed border-border bg-muted/20">
+                {contract.currentFile?.publicUrl ? (
+                  <iframe
+                    src={contract.currentFile.publicUrl}
+                    title={contract.currentFile.filename}
+                    className="h-full min-h-[420px] w-full"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 px-6 text-center">
+                    <p className="text-sm font-medium text-foreground">
+                      No document uploaded yet
+                    </p>
+                    <p className="max-w-sm text-[11px] text-muted-foreground">
+                      Upload a contract version to preview the latest file here and enable the
+                      download actions in this workspace.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => versionInputRef.current?.click()}
+                    >
+                      Upload first version
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -258,14 +469,38 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                 </div>
               )}
               {rightTab === "chat" && (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <p className="text-[11px] text-muted-foreground">
-                    Chat about this contract with AI. Ask questions about clauses, dates, or obligations.
-                  </p>
-                  <Input
-                    placeholder="Ask about this contract..."
-                    className="mt-4 max-w-xs rounded-full text-[11px]"
-                  />
+                <div className="space-y-4 py-2">
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Ask about the saved summary, deadlines, owner, or current document status.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Ask about this contract..."
+                      className="rounded-full text-[11px]"
+                      value={chatPrompt}
+                      onChange={(event) => setChatPrompt(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleAsk();
+                        }
+                      }}
+                    />
+                    <Button size="sm" className="rounded-full" onClick={handleAsk}>
+                      Ask
+                    </Button>
+                  </div>
+                  {chatAnswer ? (
+                    <div className="rounded-lg border border-border bg-card px-3 py-3 text-[11px] text-foreground">
+                      {chatAnswer}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      Try: “When is the next renewal?”, “Who owns this?”, or “Do we have a file attached?”
+                    </p>
+                  )}
                 </div>
               )}
               {rightTab === "details" && (
@@ -279,12 +514,28 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                     <StatusPill status={contract.status} />
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">Type</span>
+                    <span className="text-foreground">{contract.contractType}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Owner</span>
+                    <span className="text-foreground">{contract.owner}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Risk score</span>
                     <span className="text-foreground">{contract.riskScore}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Notice period</span>
                     <span className="text-foreground">{contract.noticePeriodDays} days</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Current version</span>
+                    <span className="text-foreground">
+                      {contract.currentFile
+                        ? `v${contract.currentFile.versionNumber}`
+                        : "No file yet"}
+                    </span>
                   </div>
                 </div>
               )}
@@ -296,7 +547,7 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
       {/* Issue banner */}
       {issueBannerVisible && (
         <div className="fixed bottom-4 left-4 z-40 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] font-medium text-danger">
-          <span>1 issue</span>
+          <span>{issueCount} issue{issueCount === 1 ? "" : "s"}</span>
           <button
             type="button"
             onClick={() => setIssueBannerVisible(false)}
@@ -309,6 +560,45 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
       )}
     </main>
   );
+}
+
+export function ContractDetailRoute({ contractId }: { contractId: string }) {
+  const { contracts, isReady } = useAppData();
+
+  if (!isReady) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+        <p className="text-sm text-muted-foreground">Loading contract…</p>
+      </main>
+    );
+  }
+
+  const contract =
+    contracts.find((item) => item.slug === contractId || item.id === contractId) ?? null;
+
+  if (!contract) {
+    return (
+      <main className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-3xl items-center px-4 py-10 md:px-8">
+        <Card className="w-full border border-border bg-card">
+          <CardHeader className="flex-col items-start gap-2 pb-2">
+            <CardTitle className="text-xl font-semibold text-foreground">
+              Contract not found
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              This contract does not exist in your workspace yet, or it may have been archived.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2 pt-2">
+            <Button asChild size="sm">
+              <Link href="/contracts">Back to contracts</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  return <ContractDetailPage contract={contract} />;
 }
 
 function InsightBlock({
