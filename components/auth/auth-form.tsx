@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,16 @@ type AuthMode = "login" | "signup";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function AuthForm({ mode }: { mode: AuthMode }) {
+export function AuthForm({
+  mode,
+  nextPath = "/dashboard",
+}: {
+  mode: AuthMode;
+  nextPath?: string;
+}) {
   const isSignup = mode === "signup";
   const { isConfigured, supabase } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextPath = useMemo(() => searchParams.get("next") || "/dashboard", [searchParams]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

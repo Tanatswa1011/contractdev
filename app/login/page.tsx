@@ -1,10 +1,17 @@
 import { PublicOnly } from "@/components/auth/public-only";
 import { AuthForm } from "@/components/auth/auth-form";
 
-export default function LoginPage() {
+interface LoginPageProps {
+  searchParams: Promise<{ next?: string }>;
+}
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const { next } = await searchParams;
+  const nextPath = next || "/dashboard";
+
   return (
-    <PublicOnly>
-      <AuthForm mode="login" />
+    <PublicOnly fallbackPath={nextPath}>
+      <AuthForm mode="login" nextPath={nextPath} />
     </PublicOnly>
   );
 }

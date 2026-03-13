@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 
 export function PublicOnly({
@@ -13,16 +13,14 @@ export function PublicOnly({
 }) {
   const { isConfigured, isLoading, user } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next");
 
   useEffect(() => {
     if (!isConfigured || isLoading || !user) {
       return;
     }
 
-    router.replace(nextPath || fallbackPath);
-  }, [fallbackPath, isConfigured, isLoading, nextPath, router, user]);
+    router.replace(fallbackPath);
+  }, [fallbackPath, isConfigured, isLoading, router, user]);
 
   if (isConfigured && (isLoading || user)) {
     return (

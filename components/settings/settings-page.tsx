@@ -282,7 +282,7 @@ function GeneralTab({
   generalMessage: string | null;
   avatarFile: File | null;
   onAvatarClick: () => void;
-  fileInputRef: RefObject<HTMLInputElement | null>;
+  fileInputRef: RefObject<HTMLInputElement>;
   onAvatarFileChange: (file: File | null) => void;
   onFullNameChange: (value: string) => void;
   onWorkspaceNameChange: (value: string) => void;

@@ -1,13 +1,18 @@
 import { addDays, addMonths } from "date-fns";
 import { Contract } from "@/types/contract";
 
+type DemoContract = Omit<
+  Contract,
+  "workspaceId" | "slug" | "contractType" | "owner" | "currentFile" | "reminders"
+>;
+
 const today = new Date();
 
 function iso(date: Date) {
   return date.toISOString();
 }
 
-export const contracts: Contract[] = [
+export const contracts: DemoContract[] = [
   {
     id: "aws",
     name: "AWS Cloud Infrastructure Agreement",
