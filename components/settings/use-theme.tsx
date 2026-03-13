@@ -12,28 +12,24 @@ const ThemeContext = createContext<{
 } | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem(STORAGE_KEY) as Theme | null;
+    return stored ?? "light";
+  });
 
   useEffect(() => {
-    const stored = (typeof window !== "undefined" && window.localStorage.getItem(STORAGE_KEY)) as Theme | null;
-    const initial = stored ?? "light";
-    setThemeState(initial);
-    if (initial === "dark") {
+    if (theme === "dark") {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
     }
-  }, []);
+    if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, theme);
+  }, [theme]);
 
   const setTheme = useCallback((next: Theme | ((prev: Theme) => Theme)) => {
     setThemeState((prev) => {
       const value = typeof next === "function" ? next(prev) : next;
-      if (value === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-      if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, value);
       return value;
     });
   }, []);

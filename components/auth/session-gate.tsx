@@ -21,10 +21,7 @@ export function SessionGate({ mode, children, redirectTo }: SessionGateProps) {
   const client = useMemo(() => getSupabaseBrowserClient(), []);
 
   useEffect(() => {
-    if (!client) {
-      setReady(true);
-      return;
-    }
+    if (!client) return;
 
     let isMounted = true;
 

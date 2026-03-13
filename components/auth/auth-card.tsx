@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,7 @@ function validateEmail(email: string) {
 
 export function AuthCard({ mode }: AuthCardProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/dashboard";
+  const [nextPath, setNextPath] = useState("/dashboard");
   const client = useMemo(() => getSupabaseBrowserClient(), []);
 
   const [email, setEmail] = useState("");
@@ -33,6 +32,12 @@ export function AuthCard({ mode }: AuthCardProps) {
 
   const isSignup = mode === "signup";
   const title = isSignup ? "Create your account" : "Sign in to ContractGuardAI";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const next = new URLSearchParams(window.location.search).get("next");
+    setNextPath(next || "/dashboard");
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

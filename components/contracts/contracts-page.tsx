@@ -69,6 +69,7 @@ export function ContractsPage() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [showFilterBar, setShowFilterBar] = useState(true);
   const [sortMode, setSortMode] = useState<"deadline" | "risk" | "name">("deadline");
+  const [nowMs] = useState(() => Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -97,12 +98,6 @@ export function ContractsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!previewId) return;
-    if (contracts.some((contract) => contract.id === previewId)) return;
-    setPreviewId(null);
-  }, [contracts, previewId]);
-
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     const base = contracts.filter((c) => {
@@ -122,7 +117,7 @@ export function ContractsPage() {
       if (quickFilter === "Expiring soon") {
         if (!c.renewalDate) return false;
         const days =
-          (new Date(c.renewalDate).getTime() - Date.now()) /
+          (new Date(c.renewalDate).getTime() - nowMs) /
           (1000 * 60 * 60 * 24);
         if (days > 60) return false;
       }
@@ -139,7 +134,7 @@ export function ContractsPage() {
       }
       return new Date(a.nextDeadline).getTime() - new Date(b.nextDeadline).getTime();
     });
-  }, [contracts, search, quickFilter, sortMode]);
+  }, [contracts, search, quickFilter, sortMode, nowMs]);
 
   const total = filtered.length;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
