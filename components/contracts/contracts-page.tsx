@@ -51,12 +51,44 @@ function extendContracts(): ExtendedContract[] {
   }));
 }
 
+type Toast = { id: number; message: string; type: "success" | "info" };
+
 export function ContractsPage() {
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("All");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  function showToast(message: string, type: Toast["type"] = "success") {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+  }
+
+  function handleSendRenewalReminders() {
+    const names = contracts
+      .filter((c) => selectedIds.has(c.id))
+      .map((c) => c.name)
+      .join(", ");
+    showToast(`Renewal reminders queued for: ${names}`);
+    setSelectedIds(new Set());
+  }
+
+  function handleExport() {
+    showToast(`Exporting ${selectedIds.size} contract${selectedIds.size > 1 ? "s" : ""}…`, "info");
+    setSelectedIds(new Set());
+  }
+
+  function handleArchive() {
+    showToast(`${selectedIds.size} contract${selectedIds.size > 1 ? "s" : ""} archived.`);
+    setSelectedIds(new Set());
+  }
+
+  function handleAssignOwner() {
+    showToast("Owner assignment — coming soon.", "info");
+  }
 
   const contracts = useMemo(() => extendContracts(), []);
 
@@ -129,6 +161,22 @@ export function ContractsPage() {
 
   return (
     <main className="px-6 py-6 md:px-10 md:py-8 lg:px-12 lg:py-10">
+      {/* Toast notifications */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={cn(
+              "rounded-xl border px-4 py-2.5 text-xs font-medium shadow-lg pointer-events-auto",
+              toast.type === "success"
+                ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900/40 dark:bg-green-950/50 dark:text-green-300"
+                : "border-border bg-card text-foreground"
+            )}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
       <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:gap-6 xl:gap-7">
         {/* Header */}
         <section className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -216,6 +264,7 @@ export function ContractsPage() {
                     variant="primary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleSendRenewalReminders}
                   >
                     Send renewal reminders
                   </Button>
@@ -223,6 +272,7 @@ export function ContractsPage() {
                     variant="secondary"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleExport}
                   >
                     Export
                   </Button>
@@ -230,6 +280,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleAssignOwner}
                   >
                     Assign owner
                   </Button>
@@ -237,6 +288,7 @@ export function ContractsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 rounded-full text-[11px]"
+                    onClick={handleArchive}
                   >
                     Archive
                   </Button>
