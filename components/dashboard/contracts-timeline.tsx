@@ -70,7 +70,7 @@ export function ContractsTimeline({ contracts }: ContractsTimelineProps) {
                     {contract.name}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    {contract.vendor} • {contract.renewalType.replace("-", " ")}
+                    {contract.vendor} • {contract?.renewalType?.replace("-", " ") ?? ""}
                   </span>
                 </div>
                 <span className="text-[11px] text-muted-foreground">

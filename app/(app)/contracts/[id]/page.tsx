@@ -7,8 +7,9 @@ import { ContractDetailPage } from "@/components/contracts/contract-detail-page"
 import { SessionGate } from "@/components/auth/session-gate";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { loadContracts } from "@/lib/contracts-repository";
+import { loadContractById } from "@/lib/contracts-repository";
 import { Contract } from "@/types/contract";
+import { Loader2 } from "lucide-react";
 
 export default function ContractDetail() {
   const params = useParams<{ id: string }>();
@@ -17,11 +18,13 @@ export default function ContractDetail() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!id) return;
     let isMounted = true;
-    loadContracts()
+
+    loadContractById(id)
       .then((result) => {
         if (!isMounted) return;
-        setContract(result.contracts.find((item) => item.id === id) ?? null);
+        setContract(result);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -35,12 +38,11 @@ export default function ContractDetail() {
   if (isLoading) {
     return (
       <SessionGate mode="protected" redirectTo="/login">
-        <main className="px-4 py-8 md:px-8">
-          <Card className="mx-auto max-w-xl border border-border bg-card">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Loading contract...
-            </CardContent>
-          </Card>
+        <main className="flex min-h-[40vh] items-center justify-center px-4">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading contract...</p>
+          </div>
         </main>
       </SessionGate>
     );
@@ -54,9 +56,9 @@ export default function ContractDetail() {
             <CardContent className="space-y-4 py-8 text-center">
               <p className="text-sm font-medium text-foreground">Contract not found</p>
               <p className="text-xs text-muted-foreground">
-                This contract may have been deleted or is no longer accessible.
+                This contract may have been deleted or you may not have access.
               </p>
-              <Button asChild>
+              <Button asChild size="sm">
                 <Link href="/contracts">Return to contracts</Link>
               </Button>
             </CardContent>

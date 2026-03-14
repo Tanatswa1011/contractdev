@@ -68,7 +68,7 @@ export function ContractsTable({ contracts }: ContractsTableProps) {
       accessorKey: "renewalType",
       cell: ({ row }) => (
         <span className="text-[11px] text-muted capitalize">
-          {row.original.renewalType.replace("-", " ")}
+          {row.original?.renewalType?.replace("-", " ") ?? ""}
         </span>
       )
     },

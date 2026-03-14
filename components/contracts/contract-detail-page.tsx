@@ -9,7 +9,7 @@ import { ArrowLeft, ChevronRight, Download, FileText, Maximize2, Minus, Plus, X 
 import Link from "next/link";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
-import { saveContractFile, saveContractReminder } from "@/lib/contracts-repository";
+import { uploadContractFile, saveContractReminder } from "@/lib/contracts-repository";
 
 interface ContractDetailPageProps {
   contract: Contract;
@@ -40,13 +40,16 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const [rightTab, setRightTab] = useState<RightTab>("insights");
   const [issueBannerVisible, setIssueBannerVisible] = useState(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const [currentFileUrl, setCurrentFileUrl] = useState<string | undefined>(contract.fileUrl);
+  const [isUploading, setIsUploading] = useState(false);
   const [currentPage] = useState(1);
+  const totalPages = 1;
   const [isViewerExpanded, setIsViewerExpanded] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatReply, setChatReply] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const totalPages = 12;
 
   const renewalDate = contract.renewalDate
     ? format(new Date(contract.renewalDate), "MMM d yyyy")
@@ -59,7 +62,9 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
       )
     : "—";
 
-  const pdfFilename = `${contract.id.replace(/-/g, "_")}_main.pdf`;
+  const pdfFilename = currentFileUrl
+    ? currentFileUrl.split("/").pop() ?? contract.name
+    : contract.name;
   const filteredClauses = CLAUSE_LABELS.filter((c) =>
     c.label.toLowerCase().includes(clauseSearch.toLowerCase())
   );
@@ -71,10 +76,23 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    await saveContractFile(contract.id, file);
-    setActionMessage(
-      `Uploaded ${file.name}. TODO: wire parsing/version diff workflow once backend processing is configured.`
-    );
+    if (file.size > 20 * 1024 * 1024) {
+      setActionError("File is too large. Maximum size is 20MB.");
+      event.target.value = "";
+      return;
+    }
+    setIsUploading(true);
+    setActionError(null);
+    setActionMessage("Uploading file…");
+    const { fileUrl, error } = await uploadContractFile(contract.id, file);
+    if (error) {
+      setActionError(`Upload failed: ${error}`);
+      setActionMessage(null);
+    } else {
+      setCurrentFileUrl(fileUrl ?? undefined);
+      setActionMessage(`"${file.name}" uploaded successfully.`);
+    }
+    setIsUploading(false);
     event.target.value = "";
   };
 
@@ -133,7 +151,7 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
     let response = contract.aiSummary;
 
     if (lower.includes("renew")) {
-      response = `Renewal is ${contract.renewalType.replace("-", " ")} and the next key deadline is ${nextDeadline}.`;
+      response = `Renewal is ${(contract.renewalType ?? "fixed-term").replace("-", " ")} and the next key deadline is ${nextDeadline}.`;
     } else if (lower.includes("notice")) {
       response = `Notice period is ${contract.noticePeriodDays} days. Notice window closes on ${noticeWindowCloses}.`;
     } else if (lower.includes("risk")) {
@@ -159,6 +177,11 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
             <CardContent className="py-3 text-xs text-muted-foreground">{actionMessage}</CardContent>
           </Card>
         )}
+        {actionError && (
+          <Card className="border border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20">
+            <CardContent className="py-3 text-xs text-red-700 dark:text-red-400">{actionError}</CardContent>
+          </Card>
+        )}
 
         <Link
           href="/contracts"
@@ -173,8 +196,10 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
             {contract.name}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {contract.vendor} • {contract.status.charAt(0).toUpperCase() + contract.status.slice(1)} • $
-            {contract.contractValue.toLocaleString()} / {contract.valuePeriod}
+            {contract.vendor} • {contract.status.charAt(0).toUpperCase() + contract.status.slice(1)}
+            {contract.contractValue > 0 && (
+              <> • ${contract.contractValue.toLocaleString()}{contract.valuePeriod ? ` / ${contract.valuePeriod}` : ""}</>
+            )}
           </p>
         </section>
 
@@ -189,8 +214,9 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
               size="sm"
               className="h-8 rounded-full px-3 text-[11px]"
               onClick={handleUploadVersion}
+              disabled={isUploading}
             >
-              Upload New Version
+              {isUploading ? "Uploading…" : "Upload New Version"}
             </Button>
             <Button
               variant="primary"
@@ -326,9 +352,33 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                   </Button>
                 </div>
               </div>
-              <div className="min-h-[420px] flex-1 rounded-lg border border-dashed border-border bg-muted/20 flex items-center justify-center">
-                <p className="text-[11px] text-muted-foreground">Document preview area</p>
-              </div>
+              {currentFileUrl ? (
+                <div
+                  className="flex-1 rounded-lg border border-border bg-muted/10 overflow-hidden"
+                  style={{ minHeight: "420px" }}
+                >
+                  <iframe
+                    src={currentFileUrl}
+                    title={`${contract.name} document`}
+                    className="h-full w-full"
+                    style={{ minHeight: "420px", transform: `scale(${zoom / 100})`, transformOrigin: "top left", width: `${10000 / zoom}%`, height: `${10000 / zoom}%` }}
+                  />
+                </div>
+              ) : (
+                <div className="min-h-[420px] flex-1 rounded-lg border border-dashed border-border bg-muted/20 flex flex-col items-center justify-center gap-3">
+                  <FileText className="h-8 w-8 text-muted-foreground/40" />
+                  <p className="text-[11px] text-muted-foreground">No document uploaded yet</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 rounded-full px-3 text-[11px]"
+                    onClick={handleUploadVersion}
+                    disabled={isUploading}
+                  >
+                    Upload PDF
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 

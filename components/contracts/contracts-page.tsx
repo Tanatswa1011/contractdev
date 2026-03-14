@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ExternalLink, Filter } from "lucide-react";
+import { ChevronDown, ExternalLink, Filter, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
@@ -14,9 +14,10 @@ import Link from "next/link";
 import {
   bulkArchiveContracts,
   bulkAssignOwner,
+  deleteContract,
   loadContracts,
-  saveContractFile,
   saveContractReminder,
+  uploadContractFile,
   upsertContract
 } from "@/lib/contracts-repository";
 
@@ -203,12 +204,17 @@ export function ContractsPage() {
   };
 
   const createUploadedContract = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      showToast("File is too large. Maximum size is 20MB.", "info");
+      return;
+    }
     const now = new Date();
-    const id = `contract-${Math.random().toString(36).slice(2, 10)}`;
+    // Use a proper UUID so the DB insert succeeds
+    const id = crypto.randomUUID();
     const newContract: ExtendedContract = {
       id,
       name: file.name.replace(/\.[^/.]+$/, "") || "Uploaded contract",
-      vendor: "Unassigned vendor",
+      vendor: "Unassigned",
       status: "draft",
       riskLevel: "medium",
       riskScore: 50,
@@ -221,28 +227,34 @@ export function ContractsPage() {
       renewalDate: undefined,
       noticePeriodDays: 30,
       nextDeadline: now.toISOString(),
-      summary: "Contract uploaded. Review details and set renewal information.",
-      aiSummary: "TODO: Run AI analysis after upload parsing is configured.",
-      clauses: ["Renewal"],
+      summary: "Contract uploaded. Review and complete the details.",
+      aiSummary: "AI analysis will be available after the contract is reviewed.",
+      clauses: [],
       timelineEvents: [],
-      recentActivities: [
-        {
-          id: `${id}-upload`,
-          description: `Uploaded file ${file.name}`,
-          timestamp: now.toISOString(),
-          relativeTime: "Just now"
-        }
-      ],
+      recentActivities: [],
       contractType: "Uploaded Document",
       owner: "Legal"
     };
 
+    // Optimistically add to list
     setContracts((prev) => [newContract, ...prev]);
-    setInfoMessage(`Uploaded "${file.name}". Review and complete contract details next.`);
     setPage(1);
     setPreviewId(newContract.id);
-    await saveContractFile(newContract.id, file);
-    await upsertContract(newContract);
+
+    // Save contract to DB first, then upload the file
+    const saved = await upsertContract(newContract);
+    if (saved) {
+      const contractId = saved.id;
+      showToast(`"${file.name}" saved. Uploading file…`, "info");
+      const { error } = await uploadContractFile(contractId, file);
+      if (error) {
+        showToast(`File upload failed: ${error}`, "info");
+      } else {
+        showToast(`"${file.name}" uploaded successfully.`);
+      }
+    } else {
+      showToast(`"${file.name}" queued — will sync when connected.`, "info");
+    }
   };
 
   const handleUploadChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -315,7 +327,97 @@ export function ContractsPage() {
     );
     await bulkArchiveContracts(Array.from(selectedIds));
     setSelectedIds(new Set());
-    setInfoMessage(`Archived ${selectedContracts.length} contract(s).`);
+    showToast(`Archived ${selectedContracts.length} contract(s).`);
+  };
+
+  const handleDeleteContract = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setContracts((prev) => prev.filter((c) => c.id !== id));
+    setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    if (previewId === id) setPreviewId(null);
+    const ok = await deleteContract(id);
+    if (ok) {
+      showToast(`"${name}" deleted.`);
+    } else {
+      showToast(`Delete failed — please try again.`, "info");
+    }
+  };
+
+  // New Contract modal state
+  const [showNewContractModal, setShowNewContractModal] = useState(false);
+  const [newContractForm, setNewContractForm] = useState({
+    name: "",
+    vendor: "",
+    status: "active" as Contract["status"],
+    riskLevel: "low" as Contract["riskLevel"],
+    contractValue: "",
+    startDate: "",
+    endDate: "",
+    renewalDate: "",
+    noticePeriodDays: "30"
+  });
+  const [newContractErrors, setNewContractErrors] = useState<Record<string, string>>({});
+  const [isSavingContract, setIsSavingContract] = useState(false);
+
+  const validateNewContract = () => {
+    const errors: Record<string, string> = {};
+    if (!newContractForm.name.trim()) errors.name = "Contract name is required";
+    if (!newContractForm.vendor.trim()) errors.vendor = "Vendor is required";
+    if (newContractForm.startDate && newContractForm.endDate &&
+      new Date(newContractForm.endDate) <= new Date(newContractForm.startDate)) {
+      errors.endDate = "End date must be after start date";
+    }
+    if (newContractForm.contractValue && isNaN(parseFloat(newContractForm.contractValue))) {
+      errors.contractValue = "Must be a valid number";
+    }
+    return errors;
+  };
+
+  const handleCreateNewContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors = validateNewContract();
+    if (Object.keys(errors).length > 0) {
+      setNewContractErrors(errors);
+      return;
+    }
+    setIsSavingContract(true);
+    const id = crypto.randomUUID();
+    const contract: ExtendedContract = {
+      id,
+      name: newContractForm.name.trim(),
+      vendor: newContractForm.vendor.trim(),
+      status: newContractForm.status,
+      riskLevel: newContractForm.riskLevel,
+      riskScore: newContractForm.riskLevel === "high" ? 75 : newContractForm.riskLevel === "medium" ? 50 : 25,
+      healthLabel: newContractForm.riskLevel === "high" ? "High Risk" : "Active",
+      contractValue: parseFloat(newContractForm.contractValue) || 0,
+      startDate: newContractForm.startDate || new Date().toISOString().split("T")[0],
+      endDate: newContractForm.endDate || undefined,
+      renewalDate: newContractForm.renewalDate || undefined,
+      noticePeriodDays: parseInt(newContractForm.noticePeriodDays) || 30,
+      nextDeadline: newContractForm.endDate || new Date().toISOString().split("T")[0],
+      summary: "",
+      aiSummary: "",
+      clauses: [],
+      timelineEvents: [],
+      recentActivities: [],
+      contractType: "SaaS Subscription",
+      owner: "Legal"
+    };
+    setContracts((prev) => [contract, ...prev]);
+    setShowNewContractModal(false);
+    setNewContractForm({
+      name: "", vendor: "", status: "active", riskLevel: "low",
+      contractValue: "", startDate: "", endDate: "", renewalDate: "", noticePeriodDays: "30"
+    });
+    setNewContractErrors({});
+    const saved = await upsertContract(contract);
+    setIsSavingContract(false);
+    if (saved) {
+      showToast(`"${contract.name}" created.`);
+    } else {
+      showToast(`"${contract.name}" saved locally.`, "info");
+    }
   };
 
   return (
@@ -388,11 +490,19 @@ export function ContractsPage() {
             </div>
             <Button
               size="sm"
+              variant="secondary"
+              className="h-9 rounded-full text-xs font-medium"
+              onClick={() => setShowNewContractModal(true)}
+            >
+              + New Contract
+            </Button>
+            <Button
+              size="sm"
               variant="primary"
               className="h-9 rounded-full text-xs font-medium"
               onClick={triggerUpload}
             >
-              Upload Contract
+              Upload PDF
             </Button>
           </div>
         </section>
@@ -612,6 +722,150 @@ export function ContractsPage() {
           </section>
         )}
       </div>
+
+      {/* New Contract Modal */}
+      {showNewContractModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <Card className="w-full max-w-lg border border-border bg-card shadow-xl">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-foreground">New Contract</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewContractModal(false); setNewContractErrors({}); }}
+                  className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <form onSubmit={handleCreateNewContract} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Contract name *</label>
+                    <Input
+                      value={newContractForm.name}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="e.g. AWS Enterprise Agreement"
+                      className="h-8 text-xs"
+                    />
+                    {newContractErrors.name && <p className="text-[10px] text-red-500">{newContractErrors.name}</p>}
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Vendor *</label>
+                    <Input
+                      value={newContractForm.vendor}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, vendor: e.target.value }))}
+                      placeholder="e.g. Amazon Web Services"
+                      className="h-8 text-xs"
+                    />
+                    {newContractErrors.vendor && <p className="text-[10px] text-red-500">{newContractErrors.vendor}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Status</label>
+                    <select
+                      value={newContractForm.status}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, status: e.target.value as Contract["status"] }))}
+                      className="flex h-8 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="active">Active</option>
+                      <option value="pending">Pending</option>
+                      <option value="draft">Draft</option>
+                      <option value="expired">Expired</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Risk level</label>
+                    <select
+                      value={newContractForm.riskLevel}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, riskLevel: e.target.value as Contract["riskLevel"] }))}
+                      className="flex h-8 w-full rounded-lg border border-border bg-background px-3 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Contract value ($)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={newContractForm.contractValue}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, contractValue: e.target.value }))}
+                      placeholder="0.00"
+                      className="h-8 text-xs"
+                    />
+                    {newContractErrors.contractValue && <p className="text-[10px] text-red-500">{newContractErrors.contractValue}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Notice period (days)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={newContractForm.noticePeriodDays}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, noticePeriodDays: e.target.value }))}
+                      placeholder="30"
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Start date</label>
+                    <Input
+                      type="date"
+                      value={newContractForm.startDate}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, startDate: e.target.value }))}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">End date</label>
+                    <Input
+                      type="date"
+                      value={newContractForm.endDate}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, endDate: e.target.value }))}
+                      className="h-8 text-xs"
+                    />
+                    {newContractErrors.endDate && <p className="text-[10px] text-red-500">{newContractErrors.endDate}</p>}
+                  </div>
+                  <div className="col-span-2 space-y-1">
+                    <label className="block text-[11px] font-medium text-foreground">Renewal date</label>
+                    <Input
+                      type="date"
+                      value={newContractForm.renewalDate}
+                      onChange={(e) => setNewContractForm(f => ({ ...f, renewalDate: e.target.value }))}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 rounded-full px-3 text-[11px]"
+                    onClick={() => { setShowNewContractModal(false); setNewContractErrors({}); }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    className="h-8 rounded-full px-4 text-[11px]"
+                    disabled={isSavingContract}
+                  >
+                    {isSavingContract ? "Creating…" : "Create contract"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </main>
   );
 }
@@ -696,7 +950,7 @@ function ContractsTable({
                     {contract.name}
                   </span>
                   <span className="text-[11px] text-muted">
-                    {contract.renewalType.replace("-", " ")}
+                    {(contract.renewalType ?? "").replace("-", " ")}
                   </span>
                 </div>
               </td>

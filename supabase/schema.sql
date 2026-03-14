@@ -22,17 +22,45 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Auto-create a profile when a user signs up
+-- Auto-create a profile + default workspace when a user signs up
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  new_workspace_id UUID;
+  workspace_slug   TEXT;
+  display_name     TEXT;
 BEGIN
+  display_name := COALESCE(
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'full_name'), ''),
+    split_part(NEW.email, '@', 1)
+  );
+
+  -- Create profile
   INSERT INTO profiles (id, email, full_name, avatar_url)
   VALUES (
     NEW.id,
     NEW.email,
-    NEW.raw_user_meta_data->>'full_name',
+    display_name,
     NEW.raw_user_meta_data->>'avatar_url'
   );
+
+  -- Generate a URL-safe unique slug
+  workspace_slug := lower(regexp_replace(display_name, '[^a-zA-Z0-9]+', '-', 'g'))
+                    || '-' || substring(gen_random_uuid()::text, 1, 8);
+
+  -- Create the user's default workspace
+  INSERT INTO workspaces (name, slug, owner_id)
+  VALUES (
+    display_name || '''s Workspace',
+    workspace_slug,
+    NEW.id
+  )
+  RETURNING id INTO new_workspace_id;
+
+  -- Add the user as the workspace owner in workspace_members
+  INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+  VALUES (new_workspace_id, NEW.id, 'owner', NOW());
+
   RETURN NEW;
 END;
 $$;
@@ -495,3 +523,121 @@ SELECT
 FROM contracts
 WHERE archived_at IS NULL
 GROUP BY workspace_id;
+
+-- ============================================================
+-- WORKSPACE SETTINGS
+-- Per-user workspace configuration (one row per user for MVP)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS workspace_settings (
+  id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id               UUID        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  workspace_name        TEXT,
+  notification_channels JSONB       NOT NULL DEFAULT '{}',
+  notification_events   JSONB       NOT NULL DEFAULT '{}',
+  ai_settings           JSONB       NOT NULL DEFAULT '{}',
+  integrations          JSONB       NOT NULL DEFAULT '{}',
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id)
+);
+
+CREATE INDEX IF NOT EXISTS ws_settings_user_idx ON workspace_settings(user_id);
+
+ALTER TABLE workspace_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "ws_settings_own" ON workspace_settings
+  FOR ALL USING (user_id = auth.uid());
+
+CREATE TRIGGER set_updated_at_ws_settings
+  BEFORE UPDATE ON workspace_settings
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- CONTRACT REMINDERS
+-- Per-contract reminder records
+-- ============================================================
+CREATE TABLE IF NOT EXISTS contract_reminders (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_id UUID        NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+  user_id     UUID        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  title       TEXT        NOT NULL,
+  due_at      TIMESTAMPTZ NOT NULL,
+  is_sent     BOOLEAN     NOT NULL DEFAULT FALSE,
+  status      TEXT        NOT NULL DEFAULT 'scheduled'
+                          CHECK (status IN ('scheduled', 'sent', 'cancelled')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS reminders_contract_idx ON contract_reminders(contract_id);
+CREATE INDEX IF NOT EXISTS reminders_user_idx     ON contract_reminders(user_id);
+CREATE INDEX IF NOT EXISTS reminders_due_at_idx   ON contract_reminders(due_at);
+
+ALTER TABLE contract_reminders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "reminders_select" ON contract_reminders
+  FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY "reminders_insert" ON contract_reminders
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "reminders_update" ON contract_reminders
+  FOR UPDATE USING (user_id = auth.uid());
+
+CREATE POLICY "reminders_delete" ON contract_reminders
+  FOR DELETE USING (user_id = auth.uid());
+
+-- ============================================================
+-- CONTRACT FILES
+-- Uploaded file records per contract (supports versioning)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS contract_files (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_id UUID        NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+  user_id     UUID        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  file_name   TEXT        NOT NULL,
+  file_url    TEXT,
+  file_size   BIGINT,
+  file_type   TEXT,
+  version     INTEGER     NOT NULL DEFAULT 1,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS files_contract_idx ON contract_files(contract_id);
+CREATE INDEX IF NOT EXISTS files_user_idx     ON contract_files(user_id);
+
+ALTER TABLE contract_files ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "files_select" ON contract_files
+  FOR SELECT USING (
+    contract_id IN (SELECT id FROM contracts)
+  );
+
+CREATE POLICY "files_insert" ON contract_files
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "files_delete" ON contract_files
+  FOR DELETE USING (user_id = auth.uid());
+
+-- ============================================================
+-- SUPABASE STORAGE
+-- Run the following in the Supabase dashboard Storage section,
+-- or via the Supabase CLI / REST API:
+--
+--   1. Create a private bucket named "contracts"
+--   2. Apply the storage policies below
+--
+-- Storage bucket RLS (run in SQL editor after creating the bucket):
+-- ============================================================
+
+-- Allow authenticated users to upload files to their own workspace folder
+-- INSERT policy: storage.objects for bucket "contracts"
+-- WITH CHECK: (auth.uid()::text = (storage.foldername(name))[1])
+-- (file paths should be: {user_id}/{contract_id}/{filename})
+
+-- Allow authenticated users to read files they have access to
+-- SELECT policy: storage.objects for bucket "contracts"
+-- USING: auth.role() = 'authenticated'
+
+-- NOTE: Apply these policies via the Supabase dashboard Storage > Policies UI,
+-- or use the supabase CLI:
+--   supabase storage create contracts --public false
