@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Contract } from "@/types/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { ArrowLeft, ChevronRight, Download, FileText, Maximize2, Minus, Plus, X 
 import Link from "next/link";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
-import { uploadContractFile, saveContractReminder } from "@/lib/contracts-repository";
+import { uploadContractFile, saveContractReminder, loadReminders, deleteReminder } from "@/lib/contracts-repository";
 
 interface ContractDetailPageProps {
   contract: Contract;
@@ -32,7 +32,14 @@ const DETECTED_ISSUES = [
   "Data Processing Addendum present; review sub-processor list.",
 ];
 
-type RightTab = "insights" | "chat" | "details";
+type RightTab = "insights" | "details" | "reminders" | "chat";
+
+type ReminderRow = {
+  id: string;
+  title: string;
+  due_at: string;
+  status: string;
+};
 
 export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const [clauseSearch, setClauseSearch] = useState("");
@@ -49,7 +56,51 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
   const [isViewerExpanded, setIsViewerExpanded] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatReply, setChatReply] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<ReminderRow[]>([]);
+  const [isLoadingReminders, setIsLoadingReminders] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState("");
+  const [reminderDate, setReminderDate] = useState("");
+  const [isSavingReminder, setIsSavingReminder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load reminders when the reminders tab is opened
+  useEffect(() => {
+    if (rightTab !== "reminders") return;
+    let isMounted = true;
+    setIsLoadingReminders(true);
+    loadReminders(contract.id).then((data) => {
+      if (!isMounted) return;
+      setReminders((data as ReminderRow[]) ?? []);
+      setIsLoadingReminders(false);
+    });
+    return () => { isMounted = false; };
+  }, [rightTab, contract.id]);
+
+  const handleAddReminder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reminderTitle.trim() || !reminderDate) return;
+    setIsSavingReminder(true);
+    const saved = await saveContractReminder(contract.id, reminderTitle.trim(), new Date(reminderDate).toISOString());
+    if (saved) {
+      const newReminder: ReminderRow = {
+        id: saved.id,
+        title: reminderTitle.trim(),
+        due_at: new Date(reminderDate).toISOString(),
+        status: "scheduled"
+      };
+      setReminders((prev) => [...prev, newReminder]);
+      setReminderTitle("");
+      setReminderDate("");
+      setActionMessage("Reminder saved.");
+      setTimeout(() => setActionMessage(null), 3000);
+    }
+    setIsSavingReminder(false);
+  };
+
+  const handleDeleteReminder = async (id: string) => {
+    const ok = await deleteReminder(id);
+    if (ok) setReminders((prev) => prev.filter((r) => r.id !== id));
+  };
 
   const renewalDate = contract.renewalDate
     ? format(new Date(contract.renewalDate), "MMM d yyyy")
@@ -222,9 +273,9 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
               variant="primary"
               size="sm"
               className="h-8 rounded-full px-3 text-[11px]"
-              onClick={handleCreateReminder}
+              onClick={() => setRightTab("reminders")}
             >
-              Create Reminder
+              Reminders
             </Button>
             <Button
               variant="secondary"
@@ -384,20 +435,25 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
 
           {/* Right: Insights / Chat / Details */}
           <Card className="border border-border bg-card rounded-[var(--radius)] flex flex-col">
-            <div className="flex border-b border-border">
-              {(["insights", "chat", "details"] as const).map((tab) => (
+            <div className="flex border-b border-border overflow-x-auto">
+              {(["insights", "details", "reminders", "chat"] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setRightTab(tab)}
                   className={cn(
-                    "flex-1 px-4 py-2.5 text-[11px] font-medium capitalize transition-colors",
+                    "shrink-0 px-3 py-2.5 text-[11px] font-medium capitalize transition-colors",
                     rightTab === tab
                       ? "border-b-2 border-foreground text-foreground"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {tab}
+                  {tab === "reminders" && reminders.length > 0 && (
+                    <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {reminders.length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -471,13 +527,113 @@ export function ContractDetailPage({ contract }: ContractDetailPageProps) {
                     <StatusPill status={contract.status} />
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">Risk level</span>
+                    <RiskPill level={contract.riskLevel} />
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Risk score</span>
                     <span className="text-foreground">{contract.riskScore}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Contract value</span>
+                    <span className="text-foreground">
+                      {contract.contractValue > 0
+                        ? `$${contract.contractValue.toLocaleString()}${contract.valuePeriod ? ` / ${contract.valuePeriod}` : ""}`
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Start date</span>
+                    <span className="text-foreground">
+                      {contract.startDate ? format(new Date(contract.startDate), "MMM d yyyy") : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">End date</span>
+                    <span className="text-foreground">
+                      {contract.endDate ? format(new Date(contract.endDate), "MMM d yyyy") : "—"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Notice period</span>
                     <span className="text-foreground">{contract.noticePeriodDays} days</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Notice closes</span>
+                    <span className="text-foreground">{noticeWindowCloses}</span>
+                  </div>
+                </div>
+              )}
+              {rightTab === "reminders" && (
+                <div className="space-y-4">
+                  {/* Create reminder form */}
+                  <form onSubmit={handleAddReminder} className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                    <p className="text-[11px] font-medium text-foreground">New reminder</p>
+                    <input
+                      type="text"
+                      value={reminderTitle}
+                      onChange={(e) => setReminderTitle(e.target.value)}
+                      placeholder="Reminder title"
+                      required
+                      className="flex h-8 w-full rounded-lg border border-border bg-background px-3 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <input
+                      type="date"
+                      value={reminderDate}
+                      onChange={(e) => setReminderDate(e.target.value)}
+                      required
+                      className="flex h-8 w-full rounded-lg border border-border bg-background px-3 text-[11px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSavingReminder || !reminderTitle.trim() || !reminderDate}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-[11px] font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      {isSavingReminder ? "Saving…" : "Add reminder"}
+                    </button>
+                  </form>
+
+                  {/* Reminder list */}
+                  {isLoadingReminders ? (
+                    <p className="py-4 text-center text-[11px] text-muted-foreground">Loading reminders…</p>
+                  ) : reminders.length === 0 ? (
+                    <p className="py-4 text-center text-[11px] text-muted-foreground">
+                      No reminders set for this contract.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {reminders.map((r) => {
+                        const dueDate = new Date(r.due_at);
+                        const isPast = dueDate < new Date();
+                        return (
+                          <div
+                            key={r.id}
+                            className={cn(
+                              "flex items-start justify-between gap-2 rounded-lg border px-3 py-2",
+                              isPast
+                                ? "border-orange-200 bg-orange-50 dark:border-orange-900/30 dark:bg-orange-950/20"
+                                : "border-border bg-card"
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[11px] font-medium text-foreground">{r.title}</p>
+                              <p className={cn("mt-0.5 text-[10px]", isPast ? "text-orange-600 dark:text-orange-400" : "text-muted-foreground")}>
+                                {isPast ? "Overdue · " : "Due "}{format(dueDate, "MMM d yyyy")}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReminder(r.id)}
+                              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              aria-label="Delete reminder"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
