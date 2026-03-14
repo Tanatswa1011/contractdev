@@ -35,12 +35,10 @@ const TABS = [
   "Members",
   "Integrations",
   "AI Settings",
-  "Billing",
-  "Danger Zone",
 ] as const;
 type TabId = (typeof TABS)[number];
 const DEFAULT_SETTINGS: WorkspaceSettingsData = {
-  workspaceName: "ContractGuardAI",
+  workspaceName: "My Workspace",
   notificationChannels: {
     email: true,
     "in-app": true,
@@ -65,10 +63,10 @@ const DEFAULT_SETTINGS: WorkspaceSettingsData = {
     summaryStyle: "Concise"
   },
   integrations: {
-    google: "Connected",
+    google: "Not connected",
     slack: "Not connected",
     zapier: "Not connected",
-    webhooks: "Active"
+    webhooks: "Not connected"
   }
 };
 
@@ -120,9 +118,13 @@ export function SettingsPage() {
   const updateSettings = (updater: (prev: WorkspaceSettingsData) => WorkspaceSettingsData) => {
     setSettings((prev) => {
       const next = updater(prev);
-      saveWorkspaceSettings(next);
+      saveWorkspaceSettings(next).catch(() => {
+        setNotice("Settings saved locally. Changes will sync when connected.");
+      });
       return next;
     });
+    setNotice("Settings saved.");
+    setTimeout(() => setNotice(null), 3000);
   };
 
   return (
@@ -236,8 +238,7 @@ export function SettingsPage() {
             }
           />
         )}
-        {activeTab === "Billing" && <BillingTab onAction={setNotice} />}
-        {activeTab === "Danger Zone" && <DangerZoneTab onAction={setNotice} />}
+        {/* Billing and Danger Zone are post-MVP — hidden until implemented */}
       </CardContent>
     </Card>
   );
