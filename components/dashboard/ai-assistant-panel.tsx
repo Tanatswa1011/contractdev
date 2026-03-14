@@ -269,7 +269,7 @@ function AskContractBox({ contract }: { contract: Contract }) {
       let focused =
         "The agreement includes standard renewal and termination mechanics with data processing obligations aligned to SaaS norms.";
       if (/auto-?renew/i.test(syntheticQuestion)) {
-        focused = `This contract uses a ${contract.renewalType.replace(
+        focused = `This contract uses a ${(contract.renewalType ?? "fixed-term").replace(
           "-",
           " "
         )} structure. Non‑renewal generally requires written notice ${

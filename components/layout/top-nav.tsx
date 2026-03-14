@@ -47,7 +47,6 @@ export function TopNav() {
     }
     router.push("/login");
     router.refresh();
->>>>>>> main
   }
 
   return (

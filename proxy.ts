@@ -1,13 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/", "/login", "/signup"];
+const PUBLIC_ROUTES = ["/", "/login", "/signup", "/forgot-password"];
 const AUTH_ROUTES = ["/login", "/signup"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // If Supabase is not configured, allow everything through (dev mode)
+  // When Supabase is not configured (no .env.local), allow everything through
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -38,6 +38,7 @@ export async function proxy(request: NextRequest) {
     }
   );
 
+  // Refresh the session — required for session persistence with @supabase/ssr
   const {
     data: { user }
   } = await supabase.auth.getUser();
@@ -45,12 +46,12 @@ export async function proxy(request: NextRequest) {
   const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
   const isAuthRoute = AUTH_ROUTES.includes(pathname);
 
-  // Redirect authenticated users away from auth pages
+  // Send already-authenticated users away from login/signup to dashboard
   if (user && isAuthRoute) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Redirect unauthenticated users to login for protected routes
+  // Send unauthenticated users to login for any protected route
   if (!user && !isPublicRoute) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
@@ -62,13 +63,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico, sitemap.xml, robots.txt
-     * - public folder files
-     */
     "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"
   ]
 };

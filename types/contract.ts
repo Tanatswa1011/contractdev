@@ -47,8 +47,8 @@ export interface Contract {
   riskScore: number;
   healthLabel: string;
   contractValue: number;
-  valuePeriod: "month" | "year" | "total";
-  renewalType: RenewalType;
+  valuePeriod?: "month" | "year" | "total";
+  renewalType?: RenewalType;
   startDate: string;
   endDate?: string;
   renewalDate?: string;
@@ -56,6 +56,7 @@ export interface Contract {
   nextDeadline: string;
   summary: string;
   aiSummary: string;
+  fileUrl?: string;
   clauses: ClauseType[];
   timelineEvents: TimelineEvent[];
   recentActivities: RecentActivity[];
